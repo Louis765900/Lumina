@@ -43,3 +43,14 @@ htmlcov/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# ── Legacy C bridge (unused) ──────────────────────────────────────────────────
+lumina_engine.dll
+lumina_engine.cpp
+
+# ── Stale export dirs ─────────────────────────────────────────────────────────
+stitch_export/
+stitch_results/
+
+# ── Claude Code local config ──────────────────────────────────────────────────
+.claude/
