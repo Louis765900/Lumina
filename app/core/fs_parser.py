@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import os
 import struct
+from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -163,24 +164,107 @@ def _file_ext(filename: str) -> str:
     return ""
 
 
-# ── NTFSParser ─────────────────────────────────────────────────────────────────
+def _runs_to_byte_ranges(
+    runs: list[DataRun], boot: BootSector,
+) -> list[tuple[int, int]]:
+    """Convert NTFS data runs (clusters) to absolute (byte_offset, byte_length) tuples."""
+    return [
+        (
+            boot.partition_offset + r.start_cluster * boot.cluster_size,
+            r.length_clusters * boot.cluster_size,
+        )
+        for r in runs
+        if r.length_clusters > 0 and r.start_cluster >= 0
+    ]
 
-class NTFSParser:
-    """
-    Reads a raw device (fd already opened by ScanWorker) and extracts
-    deleted NTFS files via the Master File Table.
 
-    Typical use:
-        parser = NTFSParser(raw_dev, fd)
-        boot = parser.read_boot_sector()          # None → fallback to FileCarver
-        if boot:
-            count = parser.scan_mft(boot, stop_flag, progress_cb, file_found_cb)
+# ── BaseFSParser ───────────────────────────────────────────────────────────────
+
+class BaseFSParser(ABC):
     """
+    Abstract contract for filesystem-level metadata parsers (NTFS today; ext4 /
+    APFS in the future).
+
+    Lifecycle (owned by ScanWorker):
+        1. ScanWorker opens raw_device → fd
+        2. Iterates FS_PARSERS; for each class, constructs `parser(raw_device, fd)`
+           then calls `parser.probe()`. First parser returning True wins.
+        3. ScanWorker calls `parser.enumerate_files(stop_flag, progress_cb,
+           file_found_cb)` to harvest filesystem-level metadata.
+        4. ScanWorker closes fd.
+
+    Silent fallback contract: every failure path in probe() / enumerate_files()
+    MUST return False / 0 without raising. Corrupt signatures, missing tables,
+    truncated reads, OSError on the raw device — all are treated as "this FS
+    doesn't apply" and the pipeline falls through to signature carving.
+
+    Each file_found_cb dict should include:
+        source="mft" (or equivalent), fs=self.name, data_runs=[(start, len), ...]
+    so ScanWorker can index these ranges and dedup the subsequent carving pass.
+    """
+
+    name: str = "UNKNOWN"
 
     def __init__(self, raw_device: str, fd: int) -> None:
         self._device = raw_device
         self._fd = fd
+
+    @abstractmethod
+    def probe(self) -> bool:
+        """Return True iff this parser's filesystem is present on the device."""
+
+    @abstractmethod
+    def enumerate_files(
+        self,
+        stop_flag: Callable[[], bool],
+        progress_cb: Callable[[int], None],
+        file_found_cb: Callable[[dict], None],
+    ) -> int:
+        """Emit filesystem-level file dicts via file_found_cb. Return the count."""
+
+
+# ── NTFSParser ─────────────────────────────────────────────────────────────────
+
+class NTFSParser(BaseFSParser):
+    """
+    Reads a raw device (fd already opened by ScanWorker) and extracts
+    deleted NTFS files via the Master File Table.
+
+    Typical use via the generic FS pipeline:
+        parser = NTFSParser(raw_dev, fd)
+        if parser.probe():
+            count = parser.enumerate_files(stop_flag, progress_cb, file_found_cb)
+    """
+
+    name = "NTFS"
+
+    def __init__(self, raw_device: str, fd: int) -> None:
+        super().__init__(raw_device, fd)
         self._is_physical = "PHYSICALDRIVE" in raw_device.upper()
+        self._boot: BootSector | None = None
+
+    # ── BaseFSParser contract ─────────────────────────────────────────────────
+
+    def probe(self) -> bool:
+        """Cache the boot sector; return True if this device holds an NTFS volume."""
+        try:
+            self._boot = self.read_boot_sector()
+        except Exception as exc:
+            _log.debug("[NTFSParser] probe() raised %s — silent fallback.", exc)
+            self._boot = None
+        return self._boot is not None
+
+    def enumerate_files(
+        self,
+        stop_flag: Callable[[], bool],
+        progress_cb: Callable[[int], None],
+        file_found_cb: Callable[[dict], None],
+    ) -> int:
+        if self._boot is None:
+            self._boot = self.read_boot_sector()
+            if self._boot is None:
+                return 0
+        return self.scan_mft(self._boot, stop_flag, progress_cb, file_found_cb)
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
@@ -266,10 +350,11 @@ class NTFSParser:
                 _log.info("[NTFSParser] Scan cancelled during Pass 2.")
                 break
 
-            path   = _resolve_path(entry, dir_cache)
-            ext    = _file_ext(entry.name)
-            ftype  = ext.upper().lstrip(".") if ext else "UNKNOWN"
-            offset = self._runs_to_offset(entry.data_runs, boot)
+            path      = _resolve_path(entry, dir_cache)
+            ext       = _file_ext(entry.name)
+            ftype     = ext.upper().lstrip(".") if ext else "UNKNOWN"
+            offset    = self._runs_to_offset(entry.data_runs, boot)
+            byte_runs = _runs_to_byte_ranges(entry.data_runs, boot)
 
             file_found_cb({
                 "name":      entry.name,
@@ -278,7 +363,10 @@ class NTFSParser:
                 "size_kb":   max(1, entry.size_bytes // 1024) if entry.size_bytes else 1,
                 "device":    self._device,
                 "integrity": 85,    # Known name + position → high confidence
-                "mft_path":  path,  # Extra forensics field; UI ignores unknown keys
+                "mft_path":  path,
+                "source":    "mft",
+                "fs":        self.name,
+                "data_runs": byte_runs,   # list[(byte_offset, byte_length)] — empty for resident files
             })
             found += 1
 
@@ -576,3 +664,30 @@ def _apply_fixups(data: bytearray) -> bool:
         orig = data[usa_off + i * 2:usa_off + i * 2 + 2]
         data[sector_end:sector_end + 2] = orig
     return ok
+
+
+# ── FS registry ───────────────────────────────────────────────────────────────
+
+# Append new BaseFSParser subclasses (Ext4Parser, ApfsParser, …) here. Order
+# matters only if two parsers could probe() True on the same volume — put the
+# most specific first.
+FS_PARSERS: list[type[BaseFSParser]] = [NTFSParser]
+
+
+def detect_fs(raw_device: str, fd: int) -> BaseFSParser | None:
+    """
+    Try each registered parser. Return the first whose probe() succeeds, or
+    None if the volume is not recognised. Silent: any exception from a probe
+    is logged at DEBUG level and we move on — the caller will fall through to
+    signature carving.
+    """
+    for cls in FS_PARSERS:
+        try:
+            parser = cls(raw_device, fd)
+            if parser.probe():
+                _log.info("[detect_fs] %s matched on %s.", cls.name, raw_device)
+                return parser
+        except Exception as exc:
+            _log.debug("[detect_fs] %s raised on %s: %s", cls.__name__, raw_device, exc)
+    _log.info("[detect_fs] No FS parser matched %s — carving only.", raw_device)
+    return None

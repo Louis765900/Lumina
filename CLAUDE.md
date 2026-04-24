@@ -400,6 +400,68 @@ Track each major implementation milestone here. Keep entries brief: what was add
 - **Test result**: 68 passed (54 new here + 14 pre-existing in `test_c_bridge.py` / `test_disk_detector.py`), 0 failed, 1 warning (unrelated docstring escape in `fs_parser.py`).
 - **Status**: Objectives 1-5 complete. Engine refactor closed.
 
+### Objective 6 / Chantier 1 — Full NTFSParser integration + FS abstraction
+
+- **Added**: [app/core/fs_parser.py](app/core/fs_parser.py) — `BaseFSParser` ABC, `FS_PARSERS` registry, `detect_fs(raw_device, fd)` dispatcher.
+  - `NTFSParser` now inherits `BaseFSParser`; exposes `probe()` (caches BPB) and `enumerate_files()` (wraps `scan_mft`).
+  - `_runs_to_byte_ranges(runs, boot)` helper converts NTFS data runs from clusters to absolute (byte_offset, byte_length) tuples.
+  - Silent fallback contract: any exception in `probe()` is swallowed and logged at DEBUG level; `detect_fs()` returns `None` so the pipeline falls through to pure carving.
+- **Added**: [app/workers/scan_worker.py](app/workers/scan_worker.py) — `_DedupIndex` class.
+  - Accumulates `(start, length)` ranges during Phase 1, `freeze()` merges overlaps, `overlaps(start, length)` answers in O(log n) via `bisect`.
+  - Criterion: **any chevauchement** (partial or total) between a carved candidate and a recorded MFT run → silent drop.
+- **Modified**: [app/workers/scan_worker.py](app/workers/scan_worker.py) — `_run_real()` now uses `detect_fs()` + `_DedupIndex`.
+  - Progress split: **20% FS enumeration / 80% carving** (reflects the real time distribution).
+  - The carver receives `dedup_check=dedup_index.overlaps` only when Phase 1 actually produced entries.
+- **Modified**: [app/core/file_carver.py](app/core/file_carver.py) — `scan()` accepts a `dedup_check` callable.
+  - Silently drops candidates that overlap a claimed range; emits `source="carver"` on every surviving hit; log line reports dedup count alongside skip/reject counters.
+- **Modified**: [app/ui/screen_results.py](app/ui/screen_results.py) — UI surfaces the MFT provenance.
+  - `FileThumb` shows a green `✨ NTFS` pill (top-left) when `source == "mft"`.
+  - `_FileDetailPanel` adds conditional rows: **Origine**, **Chemin** (mft_path), **Système** (fs), **Runs** (fragment count ≥ 2).
+  - DFXML export now emits one `<byte_run>` per entry in `data_runs` (multi-fragment support), plus `<lumina:source>`, `<lumina:fs>`, `<lumina:mft_path>`.
+- **Enriched file_info schema** (new keys, all optional):
+  - `source`: `"mft"` | `"carver"` — provenance of the record.
+  - `fs`: `"NTFS"` | `"ext4"` | `"APFS"` | … — filesystem name when source is `"mft"`.
+  - `data_runs`: `list[(byte_offset, byte_length)]` — physical fragments on the device.
+  - `mft_path`: full reconstructed path (already emitted before, now consumed by UI/DFXML).
+- **Architectural decisions validated**:
+  - Overlap semantics chosen over exact-offset match — partial carved fragments of an MFT-known file are still considered duplicates.
+  - Progress ratio 20/80 — MFT enumeration is O(N_files), carving is O(disk_bytes); the disproportion is intrinsic.
+  - `data_runs` preserved in `file_info` (not just indexed) — essential for DFXML `<byte_runs>` forensic trace.
+  - `NTFSParser` keeps its name (no rename to `NtfsFSParser`) — minimal diff, tests unaffected.
+  - FS registry kept flat inside `fs_parser.py` for now — moves to a sub-package only when a second parser (ext4/APFS) ships.
+- **Tests added**: 20 new tests (88 total, 2.27s).
+  - `TestFSParserRegistry` (7 tests) — `BaseFSParser` abstractness, registry contents, `detect_fs()` match/fallback, `probe()` exception-swallowing, `_runs_to_byte_ranges` correctness + filtering.
+  - `TestDedupIndex` (8 tests) — empty index, exact match, containment both directions, partial L/R overlap, non-overlap (including half-open end), adjacent merging, 1000-range scaling, zero-length/negative rejection.
+  - `TestFileCarverDedup` (4 tests) — dedup_check dropping, non-matching pass-through, exception tolerance, `source="carver"` emission.
+- **Status**: Chantier 1 complete. NTFS integration is live in the real-scan pipeline; architecture ready for ext4/APFS (add a subclass, append to `FS_PARSERS`).
+
+### Objective 7 / Chantier 2 — High-value plugins (MP4/MOV + SQLite)
+
+- **Added**: [app/plugins/carvers/mp4_plugin.py](app/plugins/carvers/mp4_plugin.py) — ISO-BMFF family carver (MP4, MOV, 3GP, M4A/B/V, F4V, HEIC) with full atom-tree walker.
+  - **Signatures**: 17 `ftyp<brand>` tokens (isom, iso2, mp41/42, avc1, qt, M4A/B/V, 3gp4/5, 3g2a, F4V, heic/heix/heim/heis/hevc, mif1, dash) — `FileCarver` applies `-4` offset correction to land on the real box origin.
+  - **`validate_mime()`**: confirms `ftyp` prefix + major brand ∈ `_VALID_BRANDS` (35 accepted brands).
+  - **`refine_extension()`**: maps brand token → `.mov` / `.m4a` / `.m4v` / `.heic` / `.3gp` / `.3g2` / `.f4v` (fallback `.mp4`).
+  - **`estimate_size()`**: walks top-level atoms (`size u32 BE + type 4-CC`), honours 64-bit extended size (`size == 1`), treats `size == 0` as "extends to EOF", accepts unknown printable 4-CCs (vendor extensions), bails on non-ASCII type or `size < 8`.
+- **Added**: [app/plugins/carvers/sqlite_plugin.py](app/plugins/carvers/sqlite_plugin.py) — SQLite ≥ 3 database carver with exact-size reconstruction.
+  - **Signature**: `SQLite format 3\x00` (16 B magic), covers `.sqlite`, `.db`, `.sqlite3`.
+  - **`validate_mime()`**: checks page_size ∈ spec set `{1, 512, 1024, 2048, 4096, 8192, 16384, 32768}`, write/read versions ∈ `{1, 2}`, and the three fixed payload-fraction fields (offsets 21/22/23 must equal 64/32/32 per §1.3).
+  - **`estimate_size()`**: returns exact `page_size * db_size_in_pages` (integrity **100**), falls back to `default_size_kb` + integrity **75** when `db_size_in_pages == 0` (pre-3.7.0 legacy DBs) or the page_size field is corrupt.
+- **Modified**: [tests/test_file_carver.py](tests/test_file_carver.py) — 34 new tests across 5 classes.
+  - `TestMp4Validation` (11) — brand whitelist, magic/length rejection, `refine_extension()` dispatch per brand family.
+  - `TestMp4SizeCalculation` (8) — small/large files, declared-mdat overflow beyond buffer, 64-bit extended size, `moof`-fragmented, malformed size bail, non-ASCII atom type, `start < 4` graceful fallback.
+  - `TestSqliteValidation` (7) — default/WAL headers pass, bad magic/page_size/write_ver/payload-fraction reject, short-buffer reject.
+  - `TestSqliteSizeCalculation` (6) — exact 4K/8K page math, `page_size == 1` → 65536 interpretation, `db_pages == 0` fallback, short-buffer + invalid-page-size fallbacks.
+  - `TestChantier2CarverIntegration` (2) — end-to-end `FileCarver.scan()` emits `MP4` hit at offset 512 with integrity 100 + exact `size_kb`, same for `SQLITE` with `page_size * db_pages` byte length.
+- **Architectural decisions validated**:
+  - `_FRAGMENT_MIN_SIZE = 8 KB` for MP4 — below this, a structurally-valid walk still drops to integrity 70 (likely fragment).
+  - Integrity **100** when walker completed ≥ 2 top-level boxes AND total ≥ 8 KB — covers the "real file followed by zero padding on disk" case without over-counting tiny fragments.
+  - Declared mdat size credited even when it overflows the in-RAM buffer — for real 50 MB videos the MIME window (4 KB) never contains the full mdat, and the atom walker uses the declared size as a trustworthy upper bound.
+  - SQLite payload-fraction validation catches near-magic false positives (e.g. raw text buffers that happen to begin with `SQLite format 3\x00`).
+  - Both plugins claim their full `handled_extensions` tuple so the legacy `SIGNATURES` entries (`.mp4`, `.mov`, `.m4a`, `.sqlite`, `.3gp`, `.f4v`, `.heic`) are filtered out at `FileCarver` init — no double-registration.
+  - No change to `FileCarver` signature-scan logic: the existing `-4` ftyp offset correction already routes these hits correctly.
+- **Test result**: 123 passed (109 in `test_file_carver.py` + 14 pre-existing elsewhere), 0 failed, 2.28 s.
+- **Status**: Chantier 2 complete. MP4/MOV and SQLite now produce **exact** file sizes on recovery (no more `default_size_kb` guesses for these two families).
+
 ### Update policy
 
 Append a new section to this changelog **every time a major implementation is finished**. Keep each entry to: what was added, files touched, key architectural decisions validated.

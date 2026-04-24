@@ -29,9 +29,10 @@ from app.core.file_carver import (
 from app.core.fs_parser import NTFSParser
 from app.plugins.carvers.base_plugin import BaseCarverPlugin
 from app.plugins.carvers.jpeg_plugin import JpegPlugin
+from app.plugins.carvers.mp4_plugin import Mp4Plugin
 from app.plugins.carvers.pdf_plugin import PdfPlugin
+from app.plugins.carvers.sqlite_plugin import SqlitePlugin
 from app.plugins.carvers.zip_plugin import ZipPlugin
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
@@ -617,3 +618,556 @@ class TestBasePlugin:
         for p in (JpegPlugin(), PdfPlugin(), ZipPlugin()):
             assert isinstance(p.handled_extensions, tuple)
             assert p.extension in p.handled_extensions
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Objective 6 / Chantier 1 — BaseFSParser + detect_fs registry
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestFSParserRegistry:
+    def test_base_fs_parser_is_abstract(self):
+        from app.core.fs_parser import BaseFSParser
+        with pytest.raises(TypeError):
+            BaseFSParser("fake", 0)   # type: ignore[abstract]
+
+    def test_ntfs_inherits_base(self):
+        from app.core.fs_parser import BaseFSParser, NTFSParser
+        assert issubclass(NTFSParser, BaseFSParser)
+        assert NTFSParser.name == "NTFS"
+
+    def test_fs_parsers_registry_contains_ntfs(self):
+        from app.core.fs_parser import FS_PARSERS, NTFSParser
+        assert NTFSParser in FS_PARSERS
+
+    def test_detect_fs_returns_none_when_no_match(self):
+        """With no NTFS boot sector, detect_fs must return None (silent fallback)."""
+        from app.core.fs_parser import detect_fs
+        fake_sector = b"\xEB\x3C\x90" + b"FAT32   " + b"\x00" * (512 - 11)
+        with patch("app.core.fs_parser.os.lseek", return_value=0), \
+             patch("app.core.fs_parser.os.read", return_value=fake_sector):
+            result = detect_fs(r"\\.\Z:", fd=999)
+        assert result is None
+
+    def test_detect_fs_returns_parser_when_ntfs_present(self):
+        """With a valid NTFS BPB, detect_fs returns a probed NTFSParser."""
+        from app.core.fs_parser import NTFSParser, detect_fs
+        # Minimal valid NTFS BPB: "NTFS    " OEM id at offset 3, nonzero BPS/SPC
+        bpb = bytearray(512)
+        bpb[0:3]   = b"\xEB\x52\x90"
+        bpb[3:11]  = b"NTFS    "
+        bpb[0x0B:0x0D] = (512).to_bytes(2, "little")   # bytes per sector
+        bpb[0x0D]  = 8                                  # sectors per cluster
+        bpb[0x28:0x30] = (1_000_000).to_bytes(8, "little")  # total sectors
+        bpb[0x30:0x38] = (4).to_bytes(8, "little")          # MFT start cluster
+        with patch("app.core.fs_parser.os.lseek", return_value=0), \
+             patch("app.core.fs_parser.os.read", return_value=bytes(bpb)):
+            result = detect_fs(r"\\.\C:", fd=999)
+        assert isinstance(result, NTFSParser)
+        assert result.name == "NTFS"
+
+    def test_probe_swallows_exceptions(self):
+        """probe() must never raise — any exception means silent fallback."""
+        from app.core.fs_parser import NTFSParser
+        parser = NTFSParser(r"\\.\C:", fd=999)
+        with patch("app.core.fs_parser.os.lseek", side_effect=RuntimeError("boom")):
+            assert parser.probe() is False
+
+    def test_runs_to_byte_ranges_converts_clusters_to_bytes(self):
+        from app.core.fs_parser import BootSector, DataRun, _runs_to_byte_ranges
+        boot = BootSector(
+            bytes_per_sector=512, sectors_per_cluster=8, cluster_size=4096,
+            mft_start_byte=0, total_sectors=1_000_000, partition_offset=1_048_576,
+        )
+        runs = [DataRun(start_cluster=10, length_clusters=5),
+                DataRun(start_cluster=100, length_clusters=2)]
+        out = _runs_to_byte_ranges(runs, boot)
+        assert out == [
+            (1_048_576 + 10 * 4096, 5 * 4096),
+            (1_048_576 + 100 * 4096, 2 * 4096),
+        ]
+
+    def test_runs_to_byte_ranges_filters_invalid_runs(self):
+        from app.core.fs_parser import BootSector, DataRun, _runs_to_byte_ranges
+        boot = BootSector(
+            bytes_per_sector=512, sectors_per_cluster=8, cluster_size=4096,
+            mft_start_byte=0, total_sectors=1000, partition_offset=0,
+        )
+        # zero-length and negative-cluster runs must be dropped
+        runs = [DataRun(start_cluster=10, length_clusters=0),
+                DataRun(start_cluster=-1, length_clusters=5),
+                DataRun(start_cluster=20, length_clusters=3)]
+        out = _runs_to_byte_ranges(runs, boot)
+        assert out == [(20 * 4096, 3 * 4096)]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Objective 6 / Chantier 1 — _DedupIndex (ScanWorker internal)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestDedupIndex:
+    def _new(self):
+        from app.workers.scan_worker import _DedupIndex
+        return _DedupIndex()
+
+    def test_empty_index_never_overlaps(self):
+        idx = self._new()
+        idx.freeze()
+        assert idx.overlaps(100, 50) is False
+
+    def test_exact_match_overlaps(self):
+        idx = self._new()
+        idx.add(1000, 500)
+        idx.freeze()
+        assert idx.overlaps(1000, 500) is True
+
+    def test_containment_both_directions(self):
+        idx = self._new()
+        idx.add(1000, 500)
+        idx.freeze()
+        # Query inside claimed range
+        assert idx.overlaps(1100, 100) is True
+        # Claimed range inside query
+        assert idx.overlaps(500, 2000) is True
+
+    def test_partial_overlap_left_and_right(self):
+        idx = self._new()
+        idx.add(1000, 500)   # [1000, 1500)
+        idx.freeze()
+        assert idx.overlaps(900, 200) is True    # overlaps 1000-1100
+        assert idx.overlaps(1400, 200) is True   # overlaps 1400-1500
+
+    def test_non_overlapping_ranges_return_false(self):
+        idx = self._new()
+        idx.add(1000, 500)   # [1000, 1500)
+        idx.freeze()
+        assert idx.overlaps(0, 500) is False           # ends at 500
+        assert idx.overlaps(1500, 500) is False        # starts exactly at end (half-open)
+        assert idx.overlaps(10_000, 500) is False      # far away
+
+    def test_merged_adjacent_ranges(self):
+        idx = self._new()
+        idx.add(1000, 500)   # [1000, 1500)
+        idx.add(1500, 500)   # [1500, 2000) — adjacent
+        idx.add(2000, 100)   # [2000, 2100) — adjacent to merged
+        idx.freeze()
+        assert idx.overlaps(1800, 50) is True
+        assert idx.overlaps(2050, 10) is True
+        assert len(idx) == 1   # merged into a single interval
+
+    def test_multiple_independent_ranges_o_log_n(self):
+        idx = self._new()
+        # 1000 non-adjacent ranges
+        for i in range(1000):
+            idx.add(i * 10_000, 100)
+        idx.freeze()
+        assert len(idx) == 1000
+        # Query in the middle
+        assert idx.overlaps(500 * 10_000 + 10, 20) is True
+        # Query just past a range
+        assert idx.overlaps(500 * 10_000 + 200, 20) is False
+
+    def test_zero_length_and_negative_silently_rejected(self):
+        idx = self._new()
+        idx.add(1000, 0)
+        idx.add(-5, 100)
+        idx.freeze()
+        assert len(idx) == 0
+        assert idx.overlaps(-1, 100) is False
+        assert idx.overlaps(1000, 0) is False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Objective 6 / Chantier 1 — FileCarver.scan honours dedup_check
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestFileCarverDedup:
+    def _minimal_png(self) -> bytes:
+        # PNG signature + IEND so the legacy path emits exactly one hit
+        return b"\x89PNG\r\n\x1a\n" + b"\x00" * 100 + b"IEND\xaeB`\x82"
+
+    def test_dedup_check_drops_matching_candidate(self):
+        png = self._minimal_png()
+        content = b"\x00" * 4096 + png + b"\x00" * 4096
+        expected_offset = 4096
+        path = _temp_file(content)
+        try:
+            carver = FileCarver()
+            # dedup_check claims the PNG's offset → the match must be dropped.
+            def _claim_all(off: int, size: int) -> bool:
+                return off == expected_offset
+            found = carver.scan(
+                path, max_bytes=len(content), dedup_check=_claim_all,
+            )
+            assert all(f["type"] != "PNG" for f in found)
+        finally:
+            os.unlink(path)
+
+    def test_dedup_check_false_lets_candidate_through(self):
+        png = self._minimal_png()
+        content = b"\x00" * 4096 + png + b"\x00" * 4096
+        path = _temp_file(content)
+        try:
+            carver = FileCarver()
+            found = carver.scan(
+                path, max_bytes=len(content),
+                dedup_check=lambda off, size: False,
+            )
+            assert any(f["type"] == "PNG" for f in found)
+        finally:
+            os.unlink(path)
+
+    def test_dedup_check_exception_does_not_crash_scan(self):
+        png = self._minimal_png()
+        content = b"\x00" * 1024 + png + b"\x00" * 1024
+        path = _temp_file(content)
+        try:
+            carver = FileCarver()
+
+            def _bad(off: int, size: int) -> bool:
+                raise RuntimeError("intentional")
+
+            # scan() must finish and keep the match (treated as non-dup).
+            found = carver.scan(path, max_bytes=len(content), dedup_check=_bad)
+            assert any(f["type"] == "PNG" for f in found)
+        finally:
+            os.unlink(path)
+
+    def test_carver_emits_source_field(self):
+        png = self._minimal_png()
+        path = _temp_file(png)
+        try:
+            carver = FileCarver()
+            found = carver.scan(path, max_bytes=len(png))
+            assert found and found[0].get("source") == "carver"
+        finally:
+            os.unlink(path)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Objective 7 / Chantier 2 — MP4 atom walker (Mp4Plugin)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _make_mp4_box(box_type: bytes, payload: bytes, *, extended: bool = False) -> bytes:
+    """
+    Build a single ISO-BMFF box with its 8-byte header. When `extended` is
+    True, uses the 64-bit size form (size field = 1, followed by u64 size).
+    """
+    if extended:
+        size = 16 + len(payload)
+        return struct.pack(">I", 1) + box_type + struct.pack(">Q", size) + payload
+    size = 8 + len(payload)
+    return struct.pack(">I", size) + box_type + payload
+
+
+def _make_mp4_file(brand: bytes, moov_size: int, mdat_size: int) -> bytes:
+    """
+    Build a minimal, structurally-valid MP4:
+      ftyp(brand + compat brands) + moov(zeros) + mdat(zeros)
+    """
+    # ftyp payload: major_brand(4) + minor_version(4) + compat_brands(≥4)
+    ftyp_payload = brand + b"\x00\x00\x02\x00" + b"isom"
+    ftyp = _make_mp4_box(b"ftyp", ftyp_payload)
+    moov = _make_mp4_box(b"moov", b"\x00" * moov_size)
+    mdat = _make_mp4_box(b"mdat", b"\x00" * mdat_size)
+    return ftyp + moov + mdat
+
+
+class TestMp4Validation:
+    """validate_mime() and refine_extension() on synthetic ftyp buffers."""
+
+    def setup_method(self):
+        self.plugin = Mp4Plugin()
+
+    def test_valid_isom_brand(self):
+        buf = b"ftypisom\x00\x00\x02\x00mp42"
+        assert self.plugin.validate_mime(buf) is True
+
+    def test_valid_mp42_brand(self):
+        buf = b"ftypmp42\x00\x00\x00\x00isom"
+        assert self.plugin.validate_mime(buf) is True
+
+    def test_valid_qt_brand(self):
+        buf = b"ftypqt  \x20\x05\x03\x00qt  "
+        assert self.plugin.validate_mime(buf) is True
+
+    def test_valid_heic_brand(self):
+        buf = b"ftypheic\x00\x00\x00\x00mif1"
+        assert self.plugin.validate_mime(buf) is True
+
+    def test_invalid_brand_rejected(self):
+        buf = b"ftypXXXX\x00\x00\x00\x00isom"
+        assert self.plugin.validate_mime(buf) is False
+
+    def test_wrong_magic_rejected(self):
+        buf = b"XXXXisom\x00\x00\x00\x00isom"
+        assert self.plugin.validate_mime(buf) is False
+
+    def test_too_short_rejected(self):
+        assert self.plugin.validate_mime(b"ftyp") is False
+
+    def test_refine_extension_mov(self):
+        buf = b"ftypqt  " + b"\x00" * 8
+        assert self.plugin.refine_extension(buf, 0) == ".mov"
+
+    def test_refine_extension_m4a(self):
+        buf = b"ftypM4A " + b"\x00" * 8
+        assert self.plugin.refine_extension(buf, 0) == ".m4a"
+
+    def test_refine_extension_heic(self):
+        buf = b"ftypheix" + b"\x00" * 8
+        assert self.plugin.refine_extension(buf, 0) == ".heic"
+
+    def test_refine_extension_3gp(self):
+        buf = b"ftyp3gp4" + b"\x00" * 8
+        assert self.plugin.refine_extension(buf, 0) == ".3gp"
+
+    def test_refine_extension_fallback_mp4(self):
+        buf = b"ftypmp41" + b"\x00" * 8
+        assert self.plugin.refine_extension(buf, 0) == ".mp4"
+
+
+class TestMp4SizeCalculation:
+    """estimate_size() walks the atom tree and sums box sizes."""
+
+    def setup_method(self):
+        self.plugin = Mp4Plugin()
+
+    def test_exact_size_small_file(self):
+        """ftyp(24) + moov(1024) + mdat(2048) = 3096 bytes exact."""
+        data = _make_mp4_file(b"isom", 1024 - 8, 2048 - 8)
+        # start = position of "ftyp" within `data` (after 4-byte size).
+        start = data.index(b"ftyp")
+        size_kb, integrity = self.plugin.estimate_size(data, start, None)
+        # Total file size = len(data); integrity 100 when >= _FRAGMENT_MIN_SIZE (8 KB).
+        # Our small test file is only ~3 KB, so integrity is 70 (below frag threshold).
+        assert size_kb == max(1, len(data) // 1024)
+        assert integrity in (70, 100)
+
+    def test_exact_size_large_file_integrity_100(self):
+        """Full MP4 ≥ 8 KB → integrity 100 on clean walk."""
+        data = _make_mp4_file(b"isom", 2048 - 8, 16 * 1024 - 8)
+        start = data.index(b"ftyp")
+        size_kb, integrity = self.plugin.estimate_size(data, start, None)
+        assert size_kb == max(1, len(data) // 1024)
+        assert integrity == 100
+
+    def test_mdat_overflows_buffer(self):
+        """
+        mdat claims 100 MB but buffer only contains 4 KB — walker credits
+        the declared size (fragment-reassembly case). This is the nominal
+        path for real MP4s whose mdat exceeds the MIME window.
+        """
+        ftyp = _make_mp4_box(b"ftyp", b"isom\x00\x00\x00\x00isom")
+        moov = _make_mp4_box(b"moov", b"\x00" * 100)
+        # Declare mdat size = 100 MB, provide only 4 KB of payload bytes.
+        declared = 100 * 1024 * 1024
+        mdat_hdr = struct.pack(">I", declared) + b"mdat"
+        data = ftyp + moov + mdat_hdr + b"\x00" * 4096
+        start = data.index(b"ftyp")
+        size_kb, integrity = self.plugin.estimate_size(data, start, None)
+        # Expected total = ftyp + moov + declared mdat size = ~100 MB.
+        expected_bytes = len(ftyp) + len(moov) + declared
+        assert size_kb == max(1, expected_bytes // 1024)
+        assert integrity == 100
+
+    def test_extended_size_64bit(self):
+        """Size field = 1 → next 8 bytes hold a u64 size. Walker must honour it."""
+        ftyp = _make_mp4_box(b"ftyp", b"isom\x00\x00\x00\x00isom")
+        # Large mdat declared via 64-bit size (16-byte header).
+        big_payload = 32 * 1024
+        ext_mdat = _make_mp4_box(b"mdat", b"\x00" * big_payload, extended=True)
+        data = ftyp + ext_mdat
+        start = data.index(b"ftyp")
+        size_kb, integrity = self.plugin.estimate_size(data, start, None)
+        assert size_kb == max(1, len(data) // 1024)
+        assert integrity == 100
+
+    def test_moof_fragmented(self):
+        """Fragmented MP4 with moof boxes — walker accepts them as top-level."""
+        ftyp = _make_mp4_box(b"ftyp", b"iso5\x00\x00\x00\x00iso5")
+        moov = _make_mp4_box(b"moov", b"\x00" * 500)
+        moof = _make_mp4_box(b"moof", b"\x00" * 300)
+        mdat = _make_mp4_box(b"mdat", b"\x00" * 10_000)
+        data = ftyp + moov + moof + mdat
+        start = data.index(b"ftyp")
+        size_kb, integrity = self.plugin.estimate_size(data, start, None)
+        assert size_kb == max(1, len(data) // 1024)
+        assert integrity == 100
+
+    def test_malformed_size_stops_walk(self):
+        """A box size < 8 is malformed — walker bails but reports last good boundary."""
+        ftyp = _make_mp4_box(b"ftyp", b"isom\x00\x00\x00\x00isom")
+        # Inject a bad atom with size=4 (< header minimum of 8).
+        bad = struct.pack(">I", 4) + b"junk"
+        data = ftyp + bad + b"\x00" * 100
+        start = data.index(b"ftyp")
+        size_kb, integrity = self.plugin.estimate_size(data, start, None)
+        # Last good boundary is the end of ftyp → size_kb matches ftyp length.
+        assert size_kb == max(1, len(ftyp) // 1024)
+        assert integrity == 70
+
+    def test_box_origin_before_buffer_start(self):
+        """When FileCarver emits start < 4, plugin returns default gracefully."""
+        data = b"ftyp" + b"isom"
+        size_kb, integrity = self.plugin.estimate_size(data, 0, None)
+        assert size_kb == self.plugin.default_size_kb
+        assert integrity == 75
+
+    def test_non_ascii_box_type_bails(self):
+        """A box type with non-printable bytes is treated as corruption."""
+        ftyp = _make_mp4_box(b"ftyp", b"isom\x00\x00\x00\x00isom")
+        # 4-CC with NUL bytes — not printable ASCII.
+        corrupt = struct.pack(">I", 16) + b"\x00\x01\x02\x03" + b"\x00" * 8
+        data = ftyp + corrupt
+        start = data.index(b"ftyp")
+        size_kb, integrity = self.plugin.estimate_size(data, start, None)
+        # Walk stops at the corrupt atom; last_good = end of ftyp.
+        assert size_kb == max(1, len(ftyp) // 1024)
+        assert integrity == 70
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Objective 7 / Chantier 2 — SQLite header size (SqlitePlugin)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _make_sqlite_header(
+    page_size: int = 4096,
+    db_pages: int = 10,
+    *,
+    write_ver: int = 1,
+    read_ver: int = 1,
+    max_payload: int = 64,
+    min_payload: int = 32,
+    leaf_payload: int = 32,
+) -> bytes:
+    """Build a minimal but strictly-valid 100-byte SQLite header."""
+    magic = b"SQLite format 3\x00"
+    hdr = bytearray(100)
+    hdr[0:16] = magic
+    # Use 1 to represent 65536 per §1.3 — but callers pass the real value.
+    page_size_field = 1 if page_size == 65536 else page_size
+    struct.pack_into(">H", hdr, 16, page_size_field)
+    hdr[18] = write_ver
+    hdr[19] = read_ver
+    hdr[20] = 0            # reserved per-page
+    hdr[21] = max_payload
+    hdr[22] = min_payload
+    hdr[23] = leaf_payload
+    struct.pack_into(">I", hdr, 24, 1)         # file change counter
+    struct.pack_into(">I", hdr, 28, db_pages)  # total pages
+    return bytes(hdr)
+
+
+class TestSqliteValidation:
+    def setup_method(self):
+        self.plugin = SqlitePlugin()
+
+    def test_valid_default_header(self):
+        buf = _make_sqlite_header()
+        assert self.plugin.validate_mime(buf) is True
+
+    def test_wrong_magic_rejected(self):
+        buf = b"NotSQLite3\x00\x00\x00\x00\x00\x00" + b"\x00" * 84
+        assert self.plugin.validate_mime(buf) is False
+
+    def test_bad_page_size_rejected(self):
+        buf = _make_sqlite_header(page_size=3000)  # not a power of 2
+        assert self.plugin.validate_mime(buf) is False
+
+    def test_bad_write_version_rejected(self):
+        buf = _make_sqlite_header(write_ver=9)
+        assert self.plugin.validate_mime(buf) is False
+
+    def test_bad_payload_fraction_rejected(self):
+        buf = _make_sqlite_header(max_payload=50)  # spec says must be 64
+        assert self.plugin.validate_mime(buf) is False
+
+    def test_too_short_rejected(self):
+        assert self.plugin.validate_mime(b"SQLite format 3\x00short") is False
+
+    def test_wal_write_version_accepted(self):
+        buf = _make_sqlite_header(write_ver=2, read_ver=2)
+        assert self.plugin.validate_mime(buf) is True
+
+
+class TestSqliteSizeCalculation:
+    def setup_method(self):
+        self.plugin = SqlitePlugin()
+
+    def test_exact_size_4kb_pages(self):
+        """4096 * 100 pages = 400 KB exactly."""
+        hdr = _make_sqlite_header(page_size=4096, db_pages=100)
+        size_kb, integrity = self.plugin.estimate_size(hdr, 0, None)
+        assert size_kb == 400
+        assert integrity == 100
+
+    def test_exact_size_8kb_pages(self):
+        hdr = _make_sqlite_header(page_size=8192, db_pages=50)
+        size_kb, integrity = self.plugin.estimate_size(hdr, 0, None)
+        assert size_kb == (8192 * 50) // 1024
+        assert integrity == 100
+
+    def test_page_size_1_means_65536(self):
+        """§1.3: page_size field value 1 is interpreted as 65536 bytes."""
+        hdr = _make_sqlite_header(page_size=65536, db_pages=4)
+        size_kb, integrity = self.plugin.estimate_size(hdr, 0, None)
+        assert size_kb == (65536 * 4) // 1024
+        assert integrity == 100
+
+    def test_zero_page_count_falls_back(self):
+        """Legacy DBs with unreliable page counter → fallback integrity 75."""
+        hdr = _make_sqlite_header(page_size=4096, db_pages=0)
+        size_kb, integrity = self.plugin.estimate_size(hdr, 0, None)
+        assert size_kb == self.plugin.default_size_kb
+        assert integrity == 75
+
+    def test_short_buffer_falls_back(self):
+        size_kb, integrity = self.plugin.estimate_size(b"SQLite format 3\x00", 0, None)
+        assert size_kb == self.plugin.default_size_kb
+        assert integrity == 75
+
+    def test_invalid_page_size_falls_back(self):
+        hdr = bytearray(_make_sqlite_header())
+        struct.pack_into(">H", hdr, 16, 7)  # bogus value, not in spec set
+        size_kb, integrity = self.plugin.estimate_size(bytes(hdr), 0, None)
+        assert size_kb == self.plugin.default_size_kb
+        assert integrity == 75
+
+
+class TestChantier2CarverIntegration:
+    """End-to-end: FileCarver + plugin registry picks up MP4 + SQLite."""
+
+    def test_mp4_discovered_with_exact_size(self):
+        data = _make_mp4_file(b"mp42", 1024 - 8, 20 * 1024 - 8)
+        # Add leading padding to prove absolute offset handling works.
+        blob = b"\x00" * 512 + data + b"\x00" * 512
+        path = _temp_file(blob)
+        try:
+            carver = FileCarver()
+            found = carver.scan(path, max_bytes=len(blob))
+            mp4_hits = [f for f in found if f["type"] == "MP4"]
+            assert mp4_hits, "MP4 plugin did not emit a hit"
+            hit = mp4_hits[0]
+            # Absolute offset points to the box start (4 bytes before "ftyp").
+            assert hit["offset"] == 512
+            assert hit["integrity"] == 100
+            assert hit["size_kb"] == max(1, len(data) // 1024)
+        finally:
+            os.unlink(path)
+
+    def test_sqlite_discovered_with_exact_size(self):
+        hdr = _make_sqlite_header(page_size=4096, db_pages=50)
+        # Emulate a complete DB: header + 49 more pages of zeros.
+        body = hdr + b"\x00" * (4096 * 50 - len(hdr))
+        path = _temp_file(body)
+        try:
+            carver = FileCarver()
+            found = carver.scan(path, max_bytes=len(body))
+            sqlite_hits = [f for f in found if f["type"] == "SQLITE"]
+            assert sqlite_hits, "SQLite plugin did not emit a hit"
+            hit = sqlite_hits[0]
+            assert hit["offset"] == 0
+            assert hit["integrity"] == 100
+            assert hit["size_kb"] == (4096 * 50) // 1024
+        finally:
+            os.unlink(path)

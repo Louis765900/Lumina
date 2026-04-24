@@ -185,6 +185,19 @@ class FileThumb(QWidget):
         )
         self._chk.stateChanged.connect(self._on_check)
 
+        # ── Badge "nom d'origine récupéré" (fichiers issus de la MFT) ────────
+        if info.get("source") == "mft":
+            fs_tag = info.get("fs", "MFT")
+            badge = QLabel(f"✨ {fs_tag}", thumb_area)
+            badge.setToolTip("Nom d'origine récupéré depuis le système de fichiers")
+            badge.setGeometry(6, 6, 60, 18)
+            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            badge.setStyleSheet(
+                "background: rgba(52,199,89,0.92); color: #0B1A0E;"
+                "border-radius: 9px; font-size: 9px; font-weight: 700;"
+                "font-family: 'Inter'; padding: 0 4px;"
+            )
+
     def _update_style(self):
         if self._selected:
             self.setStyleSheet(
@@ -578,12 +591,22 @@ class _FileDetailPanel(QWidget):
         offset   = info.get("offset", 0)
         device   = info.get("device", "—")
 
-        for icon, lbl_text, val_text in [
+        rows: list[tuple[str, str, str]] = [
             ("📏", "Taille",  size_str),
             ("💾", "Source",  device),
             ("📍", "Offset",  f"0x{offset:X}" if offset else "—"),
             ("🔮", "Mode",    "Simulation" if info.get("simulated") else "Réel"),
-        ]:
+        ]
+        if info.get("source") == "mft":
+            rows.append(("✨", "Origine", f"Nom d'origine ({info.get('fs', 'MFT')})"))
+        if mft_path := info.get("mft_path"):
+            rows.append(("🗂", "Chemin",  mft_path))
+        if fs_name := info.get("fs"):
+            rows.append(("💿", "Système", fs_name))
+        if (runs := info.get("data_runs")) and len(runs) > 1:
+            rows.append(("🧩", "Runs",    f"{len(runs)} fragments"))
+
+        for icon, lbl_text, val_text in rows:
             row_w = QWidget()
             row_w.setStyleSheet("background: transparent;")
             row_h = QHBoxLayout(row_w)
@@ -1235,11 +1258,24 @@ class ResultsScreen(QWidget):
             ET.SubElement(fo, dfxml("filesize")).text = str(size_bytes)
 
             byte_runs = ET.SubElement(fo, dfxml("byte_runs"))
-            ET.SubElement(byte_runs, dfxml("byte_run"), attrib={
-                "file_offset": "0",
-                "img_offset":  str(info.get("offset", 0)),
-                "len":         str(size_bytes),
-            })
+            runs = info.get("data_runs") or []
+            if runs:
+                file_off = 0
+                for run_offset, run_len in runs:
+                    if run_len <= 0:
+                        continue
+                    ET.SubElement(byte_runs, dfxml("byte_run"), attrib={
+                        "file_offset": str(file_off),
+                        "img_offset":  str(run_offset),
+                        "len":         str(run_len),
+                    })
+                    file_off += run_len
+            else:
+                ET.SubElement(byte_runs, dfxml("byte_run"), attrib={
+                    "file_offset": "0",
+                    "img_offset":  str(info.get("offset", 0)),
+                    "len":         str(size_bytes),
+                })
 
             sha256 = info.get("sha256")
             if sha256:
@@ -1249,6 +1285,12 @@ class ResultsScreen(QWidget):
 
             ET.SubElement(fo, lumina("integrity")).text = str(info.get("integrity", 0))
             ET.SubElement(fo, lumina("filetype")).text  = str(info.get("type", "")).upper()
+            if src := info.get("source"):
+                ET.SubElement(fo, lumina("source")).text = src
+            if fs_name := info.get("fs"):
+                ET.SubElement(fo, lumina("fs")).text = fs_name
+            if mft_path := info.get("mft_path"):
+                ET.SubElement(fo, lumina("mft_path")).text = mft_path
             if info.get("simulated"):
                 ET.SubElement(fo, lumina("simulated")).text = "true"
 

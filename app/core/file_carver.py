@@ -412,13 +412,20 @@ class FileCarver:
         file_found_cb=None,
         stop_flag=None,
         max_bytes: int | None = None,
+        dedup_check=None,
     ) -> list[dict]:
         """
         Scan a raw device for known file signatures.
-        Returns list of dicts: {name, type, offset, size_kb, device, integrity}
+        Returns list of dicts: {name, type, offset, size_kb, device, integrity, source}
+
+        dedup_check: optional callable (abs_offset: int, size_bytes: int) -> bool.
+            If provided and returns True, the candidate is silently dropped (used
+            by ScanWorker to suppress duplicates of files already enumerated via
+            the filesystem's metadata table).
         """
         found: list[dict] = []
         counter: dict[str, int] = {}
+        dedup_count = 0
 
         _log.info("Scan start: %s", device)
 
@@ -521,6 +528,16 @@ class FileCarver:
                     _ftyp_offset = 4 if header[:4] == b"ftyp" and idx >= 4 else 0
 
                     abs_offset = offset_base + idx - _ftyp_offset
+
+                    # Silent dedup against filesystem-level entries already emitted upstream.
+                    if dedup_check is not None:
+                        try:
+                            if dedup_check(abs_offset, max(size_kb, 1) * 1024):
+                                dedup_count += 1
+                                continue
+                        except Exception as exc:
+                            _log.debug("dedup_check raised: %s — treating as non-dup.", exc)
+
                     counter[ext] = counter.get(ext, 0) + 1
 
                     file_info = {
@@ -530,6 +547,7 @@ class FileCarver:
                         "size_kb":   size_kb,
                         "device":    device,
                         "integrity": integrity,  # 0–100 score
+                        "source":    "carver",
                     }
                     found.append(file_info)
                     _log.info(
@@ -556,8 +574,8 @@ class FileCarver:
             progress_cb(100)
 
         _log.info(
-            "Scan complete: %d file(s) found, %d sector(s) skipped, %d candidate(s) rejected.",
-            len(found), skip_count, reject_count,
+            "Scan complete: %d file(s) found, %d sector(s) skipped, %d candidate(s) rejected, %d deduplicated vs FS metadata.",
+            len(found), skip_count, reject_count, dedup_count,
         )
         return found
 
