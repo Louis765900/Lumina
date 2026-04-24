@@ -1,5 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
 block_cipher = None
 
@@ -11,6 +12,16 @@ if os.path.exists('app/core/lumina_engine.dll'):
 _extra_datas = [('app/ui/styles.qss', 'app/ui')]
 if os.path.exists('.env'):
     _extra_datas.append(('.env', '.'))
+
+# Plugin carvers are discovered via pkgutil.iter_modules at runtime.
+# PyInstaller needs both explicit hiddenimports AND the .py source files on disk
+# so iter_modules() can still enumerate them inside the frozen bundle.
+_plugin_hiddenimports = collect_submodules('app.plugins')
+_plugin_datas = collect_data_files(
+    'app.plugins.carvers',
+    include_py_files=True,
+)
+_extra_datas.extend(_plugin_datas)
 
 a = Analysis(
     ['main.py'],
@@ -34,7 +45,8 @@ a = Analysis(
         'PIL.ImageQt',
         'dotenv',
         'google.generativeai',
-    ],
+        'ahocorasick',
+    ] + _plugin_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
