@@ -480,6 +480,31 @@ Track each major implementation milestone here. Keep entries brief: what was add
   - The benchmark remains available for future re-testing if the signature table grows substantially or if a different Aho-Corasick binding is evaluated.
 - **Status**: Chantier 3 complete. Optimization rejected by evidence; regex path retained deliberately.
 
+### Objective 9 / B1 Phase 1 - Rust native candidate scanner helper
+
+- **Added**: [native/lumina_scan/](native/lumina_scan/) - standalone Rust helper scaffold for the future native Deep Scan hot path.
+  - `Cargo.toml` declares `aho-corasick`, `serde`, `serde_json`, and `thiserror`.
+  - `src/main.rs` implements the JSONL stdin/stdout process wrapper with concurrent scan threads and `stop` dispatch by `request_id`.
+  - `src/protocol.rs` defines the minimal B1 contract: `scan`, `stop`, `progress`, batched `candidates`, `finished`, and `error`.
+  - `src/scanner.rs` implements image-file-only scanning with `BufReader`, reusable chunk buffer, dynamic overlap (`max_signature_len - 1`), batched candidates, progress throttling, and stop checks inside the match loop.
+  - `src/signatures.rs` decodes Python-provided hex signatures and builds a Rust `aho_corasick::AhoCorasick` matcher.
+  - `src/control.rs` exposes the cooperative stop flag used by both the process wrapper and unit tests.
+  - `tests/protocol.rs` locks JSONL parsing/serialization for the public protocol.
+- **Protocol decisions validated for Phase 1**:
+  - Rust receives signatures from Python; it does not own plugin logic or MIME validation.
+  - Rust returns only `{offset, signature_id, ext}` candidates in batches; Python will keep validation, sizing, integrity, SHA-256, DFXML, and provenance in later phases.
+  - Source scope is deliberately limited to `kind="image"`; no `PhysicalDrive`, VSS, or acquisition path is touched in Phase 1.
+  - I/O strategy is buffered sequential reads (`BufReader`, default 16 MiB chunk), not mmap, to keep stop/progress behavior predictable on removable and large local images.
+  - Candidate batching is part of the protocol from the start to avoid one JSON event per match.
+  - `.gitignore` now ignores Rust `target/` build output.
+- **Tests planned/added**:
+  - Scanner unit tests cover single hit, boundary-split signature via overlap, candidate batching, intra-match-loop stop, and non-image source rejection.
+  - Protocol integration tests cover `scan`, `stop`, and `candidates` event JSON.
+- **Verification status**:
+  - `cargo test`: **11 passed** (8 unit tests + 3 protocol integration tests), 0 failed.
+  - Python `FileCarver` is untouched in this phase; no runtime integration has been made yet.
+- **Status**: B1 Phase 1 code is ready for Phase 2. Native helper is not integrated into Python yet.
+
 ### Update policy
 
 Append a new section to this changelog **every time a major implementation is finished**. Keep each entry to: what was added, files touched, key architectural decisions validated.
