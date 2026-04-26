@@ -462,7 +462,24 @@ Track each major implementation milestone here. Keep entries brief: what was add
 - **Test result**: 123 passed (109 in `test_file_carver.py` + 14 pre-existing elsewhere), 0 failed, 2.28 s.
 - **Status**: Chantier 2 complete. MP4/MOV and SQLite now produce **exact** file sizes on recovery (no more `default_size_kb` guesses for these two families).
 
+### Objective 8 / Chantier 3 - Multi-pattern search benchmark (re vs Aho-Corasick)
+
+- **Modified**: [scripts/bench_carver.py](scripts/bench_carver.py) - synthetic benchmark for the signature search hot path.
+  - Compares current `re.Pattern.finditer()` against optional `pyahocorasick.Automaton.iter()`.
+  - Supports `BENCH_CARVER_MB` and `BENCH_CARVER_SEEDS` to scale the workload without editing the script.
+  - Uses Latin-1 byte-to-string mapping for `pyahocorasick`, preserving exact byte values while including the conversion cost in timings.
+  - Console output is ASCII-only to avoid Windows `cp1252` crashes.
+- **Benchmark result** (April 26, 2026, 32 MB synthetic buffer, 1,250 seeded signatures, 91 loaded signatures):
+  - `re` best: **21.582 s** / **1.5 MB/s**
+  - `pyahocorasick` best: **18.425 s** / **1.7 MB/s**
+  - Speedup: **1.17x**
+  - Decision: **keep `re`** because the measured gain is below the agreed **2.0x** swap threshold.
+- **Architectural decisions validated**:
+  - No runtime dependency on `pyahocorasick` is introduced for now.
+  - `FileCarver` stays on the existing regex engine, so there is no behavioral risk around overlapping signatures or plugin dispatch.
+  - The benchmark remains available for future re-testing if the signature table grows substantially or if a different Aho-Corasick binding is evaluated.
+- **Status**: Chantier 3 complete. Optimization rejected by evidence; regex path retained deliberately.
+
 ### Update policy
 
 Append a new section to this changelog **every time a major implementation is finished**. Keep each entry to: what was added, files touched, key architectural decisions validated.
-

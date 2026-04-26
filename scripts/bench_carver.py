@@ -3,6 +3,10 @@ Micro-benchmark: re.Pattern.finditer vs pyahocorasick.Automaton.iter
 over a synthetic 256 MB buffer seeded with random header signatures.
 
 Run:  python scripts/bench_carver.py
+
+Optional environment variables:
+  BENCH_CARVER_MB=32
+  BENCH_CARVER_SEEDS=1250
 """
 from __future__ import annotations
 
@@ -16,8 +20,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.core.file_carver import FileCarver
 
-BUF_SIZE = 256 * 1024 * 1024   # 256 MB
-SEED_COUNT = 10_000            # random hits scattered in buffer
+BUF_SIZE = int(os.environ.get("BENCH_CARVER_MB", "256")) * 1024 * 1024
+SEED_COUNT = int(os.environ.get("BENCH_CARVER_SEEDS", "10000"))
 RNG_SEED = 0xC0DE
 
 
@@ -39,7 +43,11 @@ def bench_regex(pattern: re.Pattern[bytes], data: bytes) -> tuple[float, int]:
 
 def bench_ahocorasick(automaton, data: bytes) -> tuple[float, int]:
     t0 = time.perf_counter()
-    hits = sum(1 for _ in automaton.iter(data))
+    # pyahocorasick's wheel is built for str keys on Windows. latin-1 is a
+    # bijection for bytes 0..255, so this keeps the benchmark byte-exact while
+    # including the conversion cost paid by the production fallback path.
+    text = data.decode("latin-1")
+    hits = sum(1 for _ in automaton.iter(text))
     return time.perf_counter() - t0, hits
 
 
@@ -66,13 +74,13 @@ def main() -> None:
     try:
         import ahocorasick
     except ImportError:
-        print("\n[ahocorasick] NOT INSTALLED — install via `pip install pyahocorasick` to benchmark")
+        print("\n[ahocorasick] NOT INSTALLED - install via `pip install pyahocorasick` to benchmark")
         return
 
     print("\n[ahocorasick] building automaton...")
     a = ahocorasick.Automaton()
     for h in headers:
-        a.add_word(h, h)
+        a.add_word(h.decode("latin-1"), h)
     a.make_automaton()
 
     print("[ahocorasick] warmup + run x3")
@@ -85,7 +93,7 @@ def main() -> None:
     ac_best = min(ac_times)
 
     speedup = re_best / ac_best if ac_best > 0 else 0
-    print("\n── Result ───────────────────────────────")
+    print("\n-- Result -------------------------------")
     print(f"  re          best: {re_best:.3f}s  ({(BUF_SIZE / (1024 * 1024)) / re_best:.1f} MB/s)")
     print(f"  aho-corasick best: {ac_best:.3f}s  ({(BUF_SIZE / (1024 * 1024)) / ac_best:.1f} MB/s)")
     print(f"  speedup: {speedup:.2f}x")
