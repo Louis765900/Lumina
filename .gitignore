@@ -36,6 +36,8 @@ htmlcov/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+benchmarks/corpus/*.img
+benchmarks/corpus/*.img.manifest.json
 
 # ── Secrets ───────────────────────────────────────────────────────────────────
 .env

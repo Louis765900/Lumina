@@ -1,4 +1,4 @@
-use aho_corasick::AhoCorasick;
+use aho_corasick::{AhoCorasick, AhoCorasickBuilder, MatchKind};
 
 use crate::{
     errors::ScanError,
@@ -21,15 +21,29 @@ struct SignatureMeta {
 
 impl CompiledSignatures {
     pub fn from_specs(specs: &[SignatureSpec], overlap_cap: usize) -> Result<Self, ScanError> {
+        Self::from_specs_with_match_kind(specs, overlap_cap, None)
+    }
+
+    pub fn from_specs_leftmost_first(
+        specs: &[SignatureSpec],
+        overlap_cap: usize,
+    ) -> Result<Self, ScanError> {
+        Self::from_specs_with_match_kind(specs, overlap_cap, Some(MatchKind::LeftmostFirst))
+    }
+
+    fn from_specs_with_match_kind(
+        specs: &[SignatureSpec],
+        overlap_cap: usize,
+        match_kind: Option<MatchKind>,
+    ) -> Result<Self, ScanError> {
         if specs.is_empty() {
             return Err(ScanError::EmptySignatures);
         }
 
-        let mut patterns = Vec::with_capacity(specs.len());
-        let mut metadata = Vec::with_capacity(specs.len());
+        let mut decoded = Vec::with_capacity(specs.len());
         let mut max_len = 0usize;
 
-        for spec in specs {
+        for (order, spec) in specs.iter().enumerate() {
             let bytes =
                 decode_hex(&spec.header_hex).map_err(|reason| ScanError::InvalidSignatureHex {
                     signature_id: spec.signature_id.clone(),
@@ -41,12 +55,7 @@ impl CompiledSignatures {
                 });
             }
             max_len = max_len.max(bytes.len());
-            metadata.push(SignatureMeta {
-                signature_id: spec.signature_id.clone(),
-                ext: spec.ext.clone(),
-                len: bytes.len(),
-            });
-            patterns.push(bytes);
+            decoded.push((order, spec, bytes));
         }
 
         if max_len > overlap_cap + 1 {
@@ -56,8 +65,27 @@ impl CompiledSignatures {
             });
         }
 
-        let matcher =
-            AhoCorasick::new(patterns).map_err(|err| ScanError::MatcherBuild(err.to_string()))?;
+        decoded.sort_by_key(|(order, _, bytes)| (std::cmp::Reverse(bytes.len()), *order));
+
+        let mut patterns = Vec::with_capacity(decoded.len());
+        let mut metadata = Vec::with_capacity(decoded.len());
+        for (_, spec, bytes) in decoded {
+            metadata.push(SignatureMeta {
+                signature_id: spec.signature_id.clone(),
+                ext: spec.ext.clone(),
+                len: bytes.len(),
+            });
+            patterns.push(bytes);
+        }
+
+        let matcher = match match_kind {
+            Some(kind) => AhoCorasickBuilder::new()
+                .match_kind(kind)
+                .build(patterns)
+                .map_err(|err| ScanError::MatcherBuild(err.to_string()))?,
+            None => AhoCorasick::new(patterns)
+                .map_err(|err| ScanError::MatcherBuild(err.to_string()))?,
+        };
 
         Ok(Self {
             matcher,

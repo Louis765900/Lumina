@@ -534,6 +534,233 @@ Track each major implementation milestone here. Keep entries brief: what was add
   - Cargo emitted transient "Blocking waiting for file lock on package cache" messages while `cargo test` and `cargo build --release` ran in parallel; both commands completed successfully.
 - **Status**: B1 Phase 2 complete. Native client is testable independently; no `ScanWorker` or UI integration yet.
 
+### Objective 11 / B1 Phase 3 - Native benchmark and parity gate
+
+- **Modified**: [scripts/bench_native_carver.py](scripts/bench_native_carver.py) - upgraded from preliminary harness to full Phase 3 benchmark.
+  - Supports `--mode python|native|both`, `--size-mb`, `--seeds`, `--keep-image`, `--force-rebuild`, and JSON output under `benchmarks/results/`.
+  - Generates a deterministic synthetic image with seeded signatures from image/document/archive families (`.gif`, `.jpg`, `.pdf`, `.png`, `.zip`).
+  - Injects signatures at known offsets, including offsets around 16 MiB chunk boundaries to validate native overlap behavior.
+  - Separates seeded-vs-engine parity fields explicitly:
+    - `seeded_missing_native = expected_set - native_set`
+    - `parity_missing_vs_python = python_set - native_set`
+    - `native_extra_vs_seeded = native_set - expected_set`
+    - `native_extra_vs_python = native_set - python_set`
+  - Splits false positives into `false_positive_common`, `false_positive_native_only`, and `false_positive_python_only`.
+  - Reports duplicates, exact-offset extension mismatches, `mbps`, `duration_ms`, `candidate_count`, and `candidates_per_sec`.
+- **Benchmark result** (April 27, 2026, `--mode both --size-mb 256 --seeds 5000 --keep-image`):
+  - JSON report: `benchmarks/results/native_phase3_1777290329.json`.
+  - Synthetic image: `benchmarks/corpus/native_phase3_256mb.img` (kept locally; ignored by git).
+  - Python regex: **91,970 ms**, **2.78 MB/s**, **5,000 candidates**, **54.37 candidates/s**.
+  - Rust helper: **6,025 ms**, **42.48 MB/s**, **5,000 candidates**, **829.88 candidates/s**.
+  - Rust wall-clock via Python client: **6,602 ms**, **38.77 MB/s**.
+- **Parity result**:
+  - `seeded_missing_native`: **0**
+  - `parity_missing_vs_python`: **0**
+  - `native_extra_vs_seeded`: **0**
+  - `native_extra_vs_python`: **0**
+  - `mismatched_ext`: **0**
+  - `duplicates_native`: **0**
+  - `false_positive_common`: **0**
+  - `false_positive_native_only`: **0**
+  - `false_positive_python_only`: **0**
+- **Gate decision**:
+  - Correctness gate passed: no seeded misses, no Python-vs-Rust missing candidates, no extension mismatches, no native duplicates.
+  - Performance gate failed: Rust helper measured **42.48 MB/s**, below the required **100 MB/s**.
+  - **Decision**: do **not** integrate into `ScanWorker` yet. Phase 4 image-only integration is blocked until the native helper reaches the 100 MB/s gate.
+- **Verification result**:
+  - `cargo test`: **11 passed**, 0 failed.
+  - `cargo build --release`: success.
+  - `python -m pytest`: **148 passed**, 0 failed.
+  - `python -m ruff check scripts/bench_native_carver.py`: success.
+- **Status**: B1 Phase 3 complete as a benchmark/parity pass, but the native engine is not eligible for Phase 4 integration yet.
+
+### Objective 12 / B1 Phase 3.1 - Native helper bottleneck analysis
+
+- **Added**: [native/lumina_scan/src/bin/internal_bench.rs](native/lumina_scan/src/bin/internal_bench.rs) - Rust-only benchmark binary for isolating native scanner bottlenecks without changing the production JSONL helper behavior.
+  - Measures read-only throughput.
+  - Measures `find_overlapping_iter` without JSONL.
+  - Measures `find_iter` + `MatchKind::LeftmostFirst` without JSONL.
+  - Measures no-copy boundary scanning variants for both overlapping and leftmost modes.
+  - Measures real `scan_image()` JSON serialization path with chunk sizes **16/32/64 MiB**, candidate batch sizes **512/2048/8192**, and progress intervals **250/1000 ms**.
+- **Benchmark inputs**:
+  - Original OneDrive corpus: `benchmarks/corpus/native_phase3_256mb.img`.
+  - External local copy: `C:\LuminaBench\native_phase3_256mb.img`.
+  - Result reports:
+    - `benchmarks/results/internal_bench_onedrive.json`
+    - `benchmarks/results/internal_bench_c_luminabench.json`
+    - `benchmarks/results/internal_bench_c_luminabench_nocopy.json`
+    - Phase 3 rerun: `benchmarks/results/native_phase3_1777294484.json`
+- **Key diagnostic results**:
+  - OneDrive read-only best: **171.25 MB/s** (16 MiB chunks).
+  - OneDrive `LeftmostFirst/find_iter` best without JSONL: **68.88 MB/s**.
+  - OneDrive JSONL scanner best: **19.21 MB/s** (32 MiB chunks, batch 2048, progress 250 ms).
+  - `C:\LuminaBench` read-only best: **111.35 MB/s** (32 MiB chunks) in the no-copy run; earlier local run reached **185.70 MB/s** read-only.
+  - `C:\LuminaBench` `find_overlapping_iter` best without JSONL: **19.23 MB/s**.
+  - `C:\LuminaBench` `LeftmostFirst/find_iter` best without JSONL: **59.12 MB/s**.
+  - `C:\LuminaBench` `LeftmostFirst/find_iter` no-copy best: **70.80 MB/s**.
+  - `C:\LuminaBench` JSONL scanner best in the no-copy benchmark run: **16.01 MB/s**.
+- **Phase 3 rerun after adding the internal benchmark** (`--mode both --size-mb 256 --seeds 5000 --keep-image`):
+  - Python regex: **258,541 ms**, **0.99 MB/s**, **5,000 candidates**.
+  - Rust helper: **17,950 ms**, **14.26 MB/s**, **5,000 candidates**.
+  - Parity remained perfect: `seeded_missing_native=0`, `parity_missing_vs_python=0`, `mismatched_ext=0`, `duplicates_native=0`.
+  - Gate remained failed: Rust below **100 MB/s**.
+- **Architectural decision**:
+  - Do **not** replace production `find_overlapping_iter` yet.
+  - `LeftmostFirst/find_iter` improves throughput but does not reach **100 MB/s** on the measured corpus, even with no-copy boundary scanning.
+  - Read-only throughput can exceed **100 MB/s**, so the bottleneck is not purely disk I/O; the scanner hot path remains dominated by matching strategy and/or JSONL scanner overhead.
+  - No `ScanWorker` or UI integration is allowed yet.
+- **Verification result**:
+  - `cargo test`: **11 passed**, 0 failed.
+  - `cargo build --release`: success.
+  - `python -m pytest`: **148 passed**, 0 failed.
+- **Status**: Phase 3.1 diagnostic complete. No production scanner patch was applied because the performance gate was not met.
+
+### Objective 13 / B1 Phase 3.2 - PrefixMatcher experiment
+
+- **Added**: [native/lumina_scan/src/prefix_matcher.rs](native/lumina_scan/src/prefix_matcher.rs) - isolated Rust prefix-index matcher for evaluating an alternative to Aho-Corasick without touching the production scanner.
+  - Builds u32/u16/u8 prefix buckets from Python-provided signatures.
+  - Preserves leftmost-longest semantics for prefix collisions.
+  - Keeps deterministic input-order tie-breaking for same-length ambiguous signatures.
+  - Exposes only isolated matching primitives; it is not wired into `scan_image()` or any Python/UI path.
+- **Added benchmark variants** in [native/lumina_scan/src/bin/internal_bench.rs](native/lumina_scan/src/bin/internal_bench.rs):
+  - `scan_prefix_u32_no_jsonl`
+  - `scan_prefix_u32_no_copy_no_jsonl`
+  - `scan_prefix_u32_jsonl_simulated`
+  - Existing comparison baselines remain: Aho overlapping, Aho `LeftmostFirst`, no-copy Aho variants, read-only, and real JSONL scanner path.
+- **Semantic Rust tests added**:
+  - Leftmost-longest behavior with `ABC` / `ABCD` / `ABCDE`.
+  - Adjacent matches.
+  - Multiple matches in one buffer.
+  - Split-boundary match via overlap window.
+  - Ambiguous identical signatures using deterministic input order.
+- **Benchmark result** (April 27, 2026, `C:\LuminaBench\native_phase3_256mb.img`):
+  - JSON report: `benchmarks/results/internal_bench_prefix_c_luminabench.json`.
+  - Read-only best: **101.88 MB/s** (64 MiB chunks).
+  - Aho overlapping best: **15.90 MB/s**.
+  - Aho overlapping no-copy best: **19.29 MB/s**.
+  - Aho `LeftmostFirst` best: **51.75 MB/s**.
+  - Aho `LeftmostFirst` no-copy best: **49.60 MB/s** in this run.
+  - Real production JSONL scanner best: **22.92 MB/s** (32 MiB chunks, batch 8192, progress 250 ms).
+  - Prefix u32 no JSONL best: **7.26 MB/s**.
+  - Prefix u32 no-copy best: **6.12 MB/s**.
+  - Prefix u32 JSONL simulated best: **8.97 MB/s** (32 MiB chunks, batch 2048, progress 1000 ms).
+- **Phase 3 parity rerun** (`python scripts/bench_native_carver.py --mode both --size-mb 256 --seeds 5000 --keep-image`):
+  - JSON report: `benchmarks/results/native_phase3_1777301544.json`.
+  - Python regex: **551,153 ms**, **0.46 MB/s**, **5,000 candidates**.
+  - Rust production helper: **28,361 ms**, **9.03 MB/s**, **5,000 candidates**.
+  - `seeded_missing_native`: **0**
+  - `parity_missing_vs_python`: **0**
+  - `mismatched_ext`: **0**
+  - `duplicates_native`: **0**
+  - `false_positive_common`: **0**
+  - `false_positive_native_only`: **0**
+  - `false_positive_python_only`: **0**
+- **Gate decision**:
+  - PrefixMatcher correctness tests passed, but measured throughput is far below both Aho `LeftmostFirst` and the required **100 MB/s** gate.
+  - Production Aho scanner remains unchanged.
+  - No `ScanWorker` or UI integration was made.
+  - Next optimization should not use naive byte-by-byte prefix probing; likely candidates are SIMD/memchr-driven first-byte scanning, rarer-prefix grouping, or a specialized matcher that can skip non-candidate bytes.
+- **Verification result**:
+  - `cargo test`: **16 Rust tests passed** (13 library/bin unit tests + 3 protocol integration tests), 0 failed.
+  - `cargo build --release`: success.
+  - `python -m pytest`: **148 passed**, 0 failed.
+- **Status**: Phase 3.2 complete as an isolated experiment. The production helper is still blocked from Phase 4 integration because the **100 MB/s** gate is not met.
+
+### Objective 14 / B1 Phase 3.3 - Rust profile breakdown
+
+- **Added**: `--profile-breakdown` mode to [native/lumina_scan/src/bin/internal_bench.rs](native/lumina_scan/src/bin/internal_bench.rs).
+  - Outputs structured JSON with per-run timings for read, buffer/overlap construction, matching, batching, JSONL serialization/write path, and unaccounted time.
+  - Reports chunks, bytes read, bytes copied, candidates, events, MB/s, matcher mode, chunk size, copy strategy, and JSONL on/off.
+  - Covers chunk sizes **16/32/64 MiB**, Aho `find_overlapping_iter`, Aho `LeftmostFirst`, copy-overlap scan buffer, no-copy boundary overlap, JSONL enabled, and JSONL disabled.
+  - This is an internal benchmark/profiling mode only; the production `scan_image()` path remains unchanged.
+- **Profile reports generated**:
+  - `benchmarks/results/profile_breakdown_c_luminabench.json` for `C:\LuminaBench\native_phase3_256mb.img`.
+  - `benchmarks/results/profile_breakdown_onedrive.json` for `benchmarks/corpus/native_phase3_256mb.img`.
+- **Key C:\LuminaBench results**:
+  - Best `LeftmostFirst` no-copy/no-JSONL: **288.76 MB/s** (16 MiB chunks).
+  - Best `LeftmostFirst` no-copy/JSONL: **261.13 MB/s** (64 MiB chunks).
+  - Best overlapping no-copy/JSONL: **80.66 MB/s** (16 MiB chunks).
+  - Best overlapping copy/JSONL: **79.14 MB/s** (16 MiB chunks).
+  - `LeftmostFirst` no-copy/JSONL time split at best: read **54.0%**, matching **42.8%**, JSONL **1.3%**, buffer/copy approximately **0%**.
+  - Overlapping no-copy/JSONL time split at best: read **14.7%**, matching **84.7%**, JSONL **0.4%**, buffer/copy approximately **0%**.
+- **Key OneDrive results**:
+  - Best `LeftmostFirst` no-copy/no-JSONL: **272.68 MB/s** (16 MiB chunks).
+  - Best `LeftmostFirst` no-copy/JSONL: **247.66 MB/s** (16 MiB chunks).
+  - Best overlapping no-copy/JSONL: **77.42 MB/s** (16 MiB chunks).
+  - Best overlapping copy/JSONL: **75.32 MB/s** (32 MiB chunks).
+  - `LeftmostFirst` no-copy/JSONL time split at best: read **52.0%**, matching **46.3%**, JSONL **1.0%**, buffer/copy approximately **0%**.
+  - Overlapping no-copy/JSONL time split at best: read **15.4%**, matching **84.0%**, JSONL **0.4%**, buffer/copy approximately **0%**.
+- **Diagnostic conclusion**:
+  - JSONL serialization/write overhead inside the Rust process is not the dominant bottleneck on the current sparse-candidate corpus; it stays around **0.2-2.3%** in measured JSONL runs.
+  - Full scan-buffer reconstruction copies roughly the whole image per pass (`~268 MB` copied on a 256 MB image) and costs up to **~26%** in some copy-overlap runs.
+  - The dominant bottleneck for the current production-compatible `find_overlapping_iter` strategy is matching: usually **~80-85%** of runtime for overlapping/no-copy runs.
+  - Aho `LeftmostFirst` plus no-copy overlap is fast enough in the internal benchmark, but it is **not production-eligible yet** because Phase 3 parity and false-positive analysis must be rerun against Python before any scanner replacement.
+  - The previous slow production helper benchmark likely includes additional process/client/runtime effects not isolated by this in-process `io::sink()` profiler; this remains a separate measurement target before Phase 4.
+- **No production change applied**:
+  - `scan_image()` still uses the existing production matcher path.
+  - No `ScanWorker` or UI integration was made.
+  - Phase 4 remains blocked until a production helper build, measured through the Python client, reaches **>=100 MB/s** with perfect parity.
+- **Verification result**:
+  - `cargo test`: **16 Rust tests passed** (13 library/bin unit tests + 3 protocol integration tests), 0 failed.
+  - `cargo build --release`: success.
+  - `python -m pytest`: **148 passed**, 0 failed.
+- **Status**: Phase 3.3 complete. The next safe optimization candidate is a separate parity-gated production experiment for Aho `LeftmostFirst` + no-copy overlap, not another blind matcher rewrite.
+
+### Objective 15 / B1 Phase 3.4 - Production-gated Aho LeftmostFirst + no-copy overlap
+
+- **Modified**: [native/lumina_scan/src/scanner.rs](native/lumina_scan/src/scanner.rs) - added two internal scanner modes:
+  - `overlapping_copy`: legacy baseline, still available with `LUMINA_NATIVE_MATCHER=overlapping_copy`.
+  - `leftmost_no_copy`: production default after this phase.
+- **Modified**: [native/lumina_scan/src/signatures.rs](native/lumina_scan/src/signatures.rs) - signature compilation now supports Aho `MatchKind::LeftmostFirst`.
+  - Signatures are sorted by descending header length, preserving input order for ties.
+  - This mirrors Python regex behavior where longer headers win at the same offset.
+- **No-copy overlap strategy adopted**:
+  - Each chunk is scanned directly.
+  - A small boundary window is built as `previous_tail + current_prefix`.
+  - Boundary candidates are emitted only when strictly crossing the chunk boundary:
+    - `match.start < overlap_len`
+    - `match.end > overlap_len`
+  - Absolute offsets are computed from `bytes_scanned - overlap_len + match.start` for boundary hits and `bytes_scanned + match.start` for chunk-local hits.
+  - This avoids duplicate candidates while preserving split-signature recovery.
+- **Rust tests added**:
+  - Prefix ambiguity: `ABC` / `ABCD` / `ABCDE` emits only `ABCDE`.
+  - Adjacent matches are emitted.
+  - Signature split across chunks is detected.
+  - No duplicate near chunk boundary.
+  - Absolute offsets are exact.
+  - Leftmost/no-copy output matches a simulated Python regex scan on a synthetic corpus.
+- **Candidate benchmark before default adoption** (`LUMINA_NATIVE_MATCHER=leftmost_no_copy python scripts/bench_native_carver.py --mode both --size-mb 256 --seeds 5000 --keep-image`):
+  - Native helper: **922 ms**, **277.49 MB/s**, **5,000 candidates**.
+  - Native wall-clock through Python client: **1,626 ms**, **157.35 MB/s**.
+  - `seeded_missing_native`: **0**
+  - `parity_missing_vs_python`: **0**
+  - `mismatched_ext`: **0**
+  - `duplicates_native`: **0**
+  - Gate passed.
+- **Final benchmark after default adoption** (`python scripts/bench_native_carver.py --mode both --size-mb 256 --seeds 5000 --keep-image`):
+  - JSON report: `benchmarks/results/native_phase3_1777305707.json`.
+  - Python regex: **72,167 ms**, **3.55 MB/s**, **5,000 candidates**.
+  - Native helper: **857 ms**, **298.46 MB/s**, **5,000 candidates**.
+  - Native wall-clock through Python client: **2,126 ms**, **120.38 MB/s**.
+  - `seeded_missing_native`: **0**
+  - `parity_missing_vs_python`: **0**
+  - `mismatched_ext`: **0**
+  - `duplicates_native`: **0**
+  - `false_positive_common`: **0**
+  - `false_positive_native_only`: **0**
+  - `false_positive_python_only`: **0**
+- **Gate decision**:
+  - Rust native throughput gate passed: **298.46 MB/s >= 100 MB/s**.
+  - Python-client wall throughput also passed: **120.38 MB/s >= 100 MB/s**.
+  - Correctness/parity gate passed with no missing candidates, no extension mismatches, and no native duplicates.
+  - The production Rust helper now defaults to Aho `LeftmostFirst` + no-copy overlap.
+  - `ScanWorker` and UI remain untouched; Phase 4 integration is now unblocked but not performed in this phase.
+- **Verification result**:
+  - `cargo test`: **22 Rust tests passed** (19 library/bin unit tests + 3 protocol integration tests), 0 failed.
+  - `cargo build --release`: success.
+  - `python -m pytest`: **148 passed**, 0 failed.
+- **Status**: Phase 3.4 complete. The native helper is now performance-eligible for Phase 4 image-only integration.
+
 ### Update policy
 
 Append a new section to this changelog **every time a major implementation is finished**. Keep each entry to: what was added, files touched, key architectural decisions validated.
