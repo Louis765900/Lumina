@@ -505,6 +505,35 @@ Track each major implementation milestone here. Keep entries brief: what was add
   - Python `FileCarver` is untouched in this phase; no runtime integration has been made yet.
 - **Status**: B1 Phase 1 code is ready for Phase 2. Native helper is not integrated into Python yet.
 
+### Objective 10 / B1 Phase 2 - Python NativeScanClient + anomaly/fallback
+
+- **Added**: [app/core/native/](app/core/native/) - isolated Python client layer for the Rust JSONL helper.
+  - `protocol.py` defines strict dataclasses and JSONL parsing/serialization for `scan`, `stop`, `progress`, batched `candidates`, `finished`, and `error`.
+  - `anomaly.py` validates functional consistency: candidate bounds (`offset < 0` or `offset >= source_size`), unknown `signature_id`, extension mismatch, oversized batch, progress regression, missing `finished`, stopped mismatch, and candidate-count mismatch.
+  - `settings.py` reads `LUMINA_SCAN_ENGINE=auto|python|native`; invalid values return `auto` and log a warning on `lumina.native`.
+  - `client.py` launches the helper as a process, drains stdout through a reader thread + `Queue`, drains stderr in a daemon thread, sends cooperative `stop`, and always cleans up stdin/process handles.
+- **Fallback rules validated**:
+  - `native` mode never falls back silently; helper absence, protocol errors, or critical anomalies raise explicit exceptions.
+  - `python` mode never starts Rust and requires an injected Python fallback callable.
+  - `auto` mode may fall back only before any candidate batch has been delivered.
+  - **Fallback auto uniquement avant émission de candidates. Après émission, erreur explicite pour éviter incohérence UI.**
+  - Candidate callbacks always receive a fresh copied list, not an internal mutable buffer.
+- **Added tests**:
+  - [tests/test_native_protocol.py](tests/test_native_protocol.py) - strict JSONL parsing, command serialization, wrong request IDs, unknown events, schema extras, bool-as-int rejection, invalid engine warning.
+  - [tests/test_native_anomaly.py](tests/test_native_anomaly.py) - critical anomaly coverage for offsets, signatures, extensions, batch size, progress, missing finish, stop mismatch; candidate-count mismatch remains a warning in Phase 2.
+  - [tests/test_native_client.py](tests/test_native_client.py) - fake-helper process tests for streaming batches, copied callbacks, stop command, auto fallback, native-forced errors, and "anomaly after candidates => no fallback".
+  - [tests/test_native_parity.py](tests/test_native_parity.py) - simple Rust helper parity smoke test when `target/release/lumina_scan(.exe)` exists; skips cleanly if not built.
+- **Added**: [scripts/bench_native_carver.py](scripts/bench_native_carver.py) - preliminary Phase 2 benchmark harness.
+  - Generates a synthetic image, extracts signatures from current `FileCarver`, compares Python regex candidate offsets against Rust helper candidate offsets when the release helper exists, and writes JSON under `benchmarks/results/`.
+  - Full performance gate (`>= 100 MB/s`, mismatch analysis, duplicates) remains Phase 3.
+- **Verification result**:
+  - `cargo test`: **11 passed**, 0 failed.
+  - `cargo build --release`: success; helper binary builds in optimized mode.
+  - `python -m pytest`: **148 passed**, 0 failed.
+  - `python -m ruff check app/core/native tests/test_native_*.py scripts/bench_native_carver.py`: success.
+  - Cargo emitted transient "Blocking waiting for file lock on package cache" messages while `cargo test` and `cargo build --release` ran in parallel; both commands completed successfully.
+- **Status**: B1 Phase 2 complete. Native client is testable independently; no `ScanWorker` or UI integration yet.
+
 ### Update policy
 
 Append a new section to this changelog **every time a major implementation is finished**. Keep each entry to: what was added, files touched, key architectural decisions validated.
