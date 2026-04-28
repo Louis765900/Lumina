@@ -98,7 +98,7 @@ ResultsScreen.new_scan_requested()      → show_home()
 7. Worker emits `finished(list)` → `ScanScreen.scan_finished(list)` → `_go_results(files)`
 8. `ResultsScreen.load_results(files)` displays results and writes to history
 
-**Critical**: fake/demo scan data is forbidden in the normal product path. `simulate=True` is development-only and must be guarded by `LUMINA_ENABLE_DEMO=1`. Without that variable, quick scan must not emit fake results; until the metadata-only quick scan is implemented, it fails clearly and asks the user to use Deep Scan.
+**Critical**: fake/demo scan data is forbidden in the normal product path. `simulate=True` is development-only and must be guarded by `LUMINA_ENABLE_DEMO=1`. Quick Scan is now metadata-only: it attempts NTFS MFT enumeration and never falls through to carving or fake data. Unsupported quick-scan sources emit "Scan rapide non disponible pour cette source" and ask the user to run Deep Scan.
 
 ---
 
@@ -171,7 +171,7 @@ Runs a PowerShell `Get-CimInstance Win32_DiskDrive | ConvertTo-Json` command to 
 
 - The normal user journey must never display generated/fake recovery results.
 - The legacy simulation path is retained only for developer testing and requires `LUMINA_ENABLE_DEMO=1`.
-- Quick Scan is no longer allowed to mean fake data. In Product V1 delivery 1 it returns a clear unavailable message; the next delivery implements real metadata-only quick scan.
+- Quick Scan is no longer allowed to mean fake data. Product V1 delivery 2 maps it to real NTFS MFT metadata enumeration only; it does not run carving.
 - Persistent application settings live in `%APPDATA%/Lumina/settings.json` through `app/core/settings.py`.
 - Settings defaults are safe: French language, `auto` scan engine, image-first preference enabled, disclaimer not accepted, and first launch not completed.
 - `app/core/i18n.py` provides a deliberately small FR/EN dictionary with French fallback.

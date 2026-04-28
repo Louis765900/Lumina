@@ -3,8 +3,7 @@ from __future__ import annotations
 TEXT: dict[str, dict[str, str]] = {
     "fr": {
         "scan.quick_unavailable": (
-            "Scan rapide reel non disponible pour cette livraison. "
-            "Utilisez Scan profond."
+            "Scan rapide non disponible pour cette source. Lancez un scan profond."
         ),
         "scan.demo_disabled": (
             "Le mode demo est desactive en production. "
@@ -19,7 +18,7 @@ TEXT: dict[str, dict[str, str]] = {
     },
     "en": {
         "scan.quick_unavailable": (
-            "Real quick scan is not available in this release. Use Deep Scan."
+            "Quick Scan is not available for this source. Run Deep Scan instead."
         ),
         "scan.demo_disabled": (
             "Demo mode is disabled in production. Set LUMINA_ENABLE_DEMO=1 "

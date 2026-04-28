@@ -425,42 +425,18 @@ class ScanWorker(QThread):
         )
         return file_info
 
-    # ── Mode réel (FS metadata + FileCarver, avec dédup) ─────────────────────
+    def _enumerate_filesystem_metadata(
+        self,
+        raw_dev: str,
+        progress_map,
+    ) -> tuple[_DedupIndex, bool, str, int]:
+        from app.core.fs_parser import detect_fs
 
-    def _run_real(self):
-        from app.core.file_carver import FileCarver
-        from app.core.fs_parser   import detect_fs
-        from app.core.native.settings import get_scan_engine
-
-        device = self._disk.get("device", "")
-        if not device:
-            self.error.emit("Aucun disque sélectionné.")
-            return
-
-        engine = get_scan_engine()
-        is_image_source = _is_local_image_source(device)
-
-        if not is_image_source and engine == "native":
-            self.error.emit(_NATIVE_IMAGE_ONLY_ERROR)
-            return
-
-        if is_image_source:
-            raw_dev = str(Path(device))
-        else:
-            try:
-                raw_dev = _to_raw_device(device)
-            except ValueError as exc:
-                self.error.emit(str(exc))
-                return
-
-        self.status_text.emit(f"Ouverture du périphérique {raw_dev}…")
-        self.progress.emit(0)
-
-        # ── Phase 1 : énumération FS (MFT / ext4 / APFS / …) — 0-20 % ─────────
-        # The fd lifecycle is owned here; the parser only calls os.lseek/read on it.
         dedup_index = _DedupIndex()
-        fs_ok  = False
+        fs_ok = False
         fs_name = ""
+        count = 0
+
         try:
             fd = os.open(raw_dev, os.O_RDONLY | os.O_BINARY)
             try:
@@ -476,8 +452,7 @@ class ScanWorker(QThread):
                     def _fs_progress(pct: int) -> None:
                         self._pause_event.wait()
                         if not self._stop_requested:
-                            # FS enumeration occupies the first 20 % of the bar
-                            self.progress.emit(pct // 5)
+                            self.progress.emit(progress_map(pct))
 
                     def _fs_file(info: dict) -> None:
                         self._pause_event.wait()
@@ -506,9 +481,75 @@ class ScanWorker(QThread):
 
         except OSError as exc:
             _log.warning(
-                "[ScanWorker] Impossible d'ouvrir %s pour l'analyse FS : %s — FileCarver seul.",
-                raw_dev, exc,
+                "[ScanWorker] Impossible d'ouvrir %s pour l'analyse FS : %s.",
+                raw_dev,
+                exc,
             )
+
+        return dedup_index, fs_ok, fs_name, count
+
+    def _run_quick_metadata(self, raw_dev: str) -> None:
+        self.status_text.emit("Scan rapide metadata — lecture NTFS MFT…")
+        self.progress.emit(0)
+
+        _dedup_index, fs_ok, _fs_name, _count = self._enumerate_filesystem_metadata(
+            raw_dev,
+            progress_map=lambda pct: max(0, min(100, pct)),
+        )
+
+        if self._stop_requested:
+            return
+
+        if not fs_ok:
+            message = t("scan.quick_unavailable")
+            self.status_text.emit(message)
+            self.error.emit(message)
+        else:
+            with self._lock:
+                n = len(self._found_files)
+            self.status_text.emit(f"Scan rapide terminé — {n} fichier(s) metadata trouvé(s).")
+        self.progress.emit(100)
+
+    # ── Mode réel (FS metadata + FileCarver, avec dédup) ─────────────────────
+
+    def _run_real(self):
+        from app.core.native.settings import get_scan_engine
+
+        device = self._disk.get("device", "")
+        if not device:
+            self.error.emit("Aucun disque sélectionné.")
+            return
+
+        scan_mode = str(self._disk.get("scan_mode", "deep")).strip().lower()
+        is_image_source = _is_local_image_source(device)
+
+        if is_image_source:
+            raw_dev = str(Path(device))
+        else:
+            try:
+                raw_dev = _to_raw_device(device)
+            except ValueError as exc:
+                self.error.emit(str(exc))
+                return
+
+        self.status_text.emit(f"Ouverture du périphérique {raw_dev}…")
+        self.progress.emit(0)
+
+        if scan_mode == "quick":
+            self._run_quick_metadata(raw_dev)
+            return
+
+        engine = get_scan_engine()
+        if not is_image_source and engine == "native":
+            self.error.emit(_NATIVE_IMAGE_ONLY_ERROR)
+            return
+
+        # ── Phase 1 : énumération FS (MFT / ext4 / APFS / …) — 0-20 % ─────────
+        # The fd lifecycle is owned here; the parser only calls os.lseek/read on it.
+        dedup_index, fs_ok, fs_name, _count = self._enumerate_filesystem_metadata(
+            raw_dev,
+            progress_map=lambda pct: pct // 5,
+        )
 
         if self._stop_requested:
             return
@@ -526,6 +567,8 @@ class ScanWorker(QThread):
 
         pct_base  = 20 if fs_ok else 0
         pct_scale = 80 if fs_ok else 100
+
+        from app.core.file_carver import FileCarver
 
         carver = FileCarver()
         dedup_check = dedup_index.overlaps if fs_ok else None

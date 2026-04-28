@@ -265,6 +265,7 @@ class ScanScreen(QWidget):
         self._found_count  = 0
         self._bad_sectors  = 0
         self._start_time   = 0.0
+        self._had_error    = False
         self._speed_buf: deque = deque()
 
         self._elapsed_timer = QTimer(self)
@@ -451,6 +452,7 @@ class ScanScreen(QWidget):
         self._found_count = 0
         self._bad_sectors = 0
         self._start_time  = time.monotonic()
+        self._had_error   = False
         self._speed_buf.clear()
         self._log_list.clear()
 
@@ -480,15 +482,15 @@ class ScanScreen(QWidget):
             self._detach_worker(self._worker)
             self._worker = None
 
-        if mode == "quick" and not is_demo_enabled():
-            self._on_error(t("scan.quick_unavailable"))
+        if mode == "demo" and not is_demo_enabled():
+            self._on_error(t("scan.demo_disabled"))
             self._cancel_btn.setEnabled(False)
             self._pause_btn.setEnabled(False)
             return
 
-        # Development-only demo path. Production quick scan must never emit
-        # fake results by default.
-        simulate = mode == "quick" and is_demo_enabled()
+        # Development-only demo path. Quick scan is metadata-only and must not
+        # route to the legacy simulation engine.
+        simulate = mode == "demo" and is_demo_enabled()
         self._worker = ScanWorker(disk, simulate=simulate)
         self._worker.progress.connect(self._on_progress)
         self._worker.status_text.connect(self._on_status)
@@ -541,6 +543,8 @@ class ScanScreen(QWidget):
         self._log_list.scrollToBottom()
 
     def _on_finished(self, files: list):
+        if self._had_error:
+            return
         self._elapsed_timer.stop()
         self._ring.setActive(False)
         self._ring.setValue(100)
@@ -551,11 +555,14 @@ class ScanScreen(QWidget):
         self.scan_finished.emit(files)
 
     def _on_error(self, msg: str):
+        self._had_error = True
         self._elapsed_timer.stop()
         self._ring.setActive(False)
         self._status_lbl.setText(f"Erreur : {msg}")
         self._title.setText("Erreur d'analyse")
         self._eta_lbl.setText("")
+        self._cancel_btn.setEnabled(False)
+        self._pause_btn.setEnabled(False)
 
     # ── Contrôles pause / annuler ─────────────────────────────────────────────
 

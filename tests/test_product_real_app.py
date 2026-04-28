@@ -111,11 +111,102 @@ def test_simulation_guard_emits_no_fake_results_in_production(monkeypatch, qtbot
 def test_quick_scan_user_path_does_not_start_demo_worker(monkeypatch, qtbot):
     from app.ui.screen_scan import ScanScreen
 
+    class _Signal:
+        def connect(self, _callback):
+            return None
+
+    class _FakeWorker:
+        created: list[tuple[dict, bool]] = []
+
+        def __init__(self, disk, simulate=False):
+            self.progress = _Signal()
+            self.status_text = _Signal()
+            self.files_batch_found = _Signal()
+            self.finished = _Signal()
+            self.error = _Signal()
+            self.started = False
+            type(self).created.append((disk, simulate))
+
+        def start(self):
+            self.started = True
+
     monkeypatch.delenv("LUMINA_ENABLE_DEMO", raising=False)
+    monkeypatch.setattr("app.ui.screen_scan.ScanWorker", _FakeWorker)
     screen = ScanScreen()
     qtbot.addWidget(screen)
 
     screen.start_scan({"device": "sample.img", "size_gb": 1, "scan_mode": "quick"})
 
-    assert screen._worker is None
-    assert "Scan rapide reel non disponible" in screen._status_lbl.text()
+    assert _FakeWorker.created
+    assert _FakeWorker.created[0][1] is False
+
+
+def test_quick_scan_ntfs_uses_metadata_parser_only(monkeypatch, qtbot, tmp_path):
+    calls = {"enumerate": 0}
+
+    class _FakeParser:
+        name = "NTFS"
+
+        def enumerate_files(self, stop_flag, progress_cb, file_found_cb):
+            calls["enumerate"] += 1
+            progress_cb(50)
+            file_found_cb(
+                {
+                    "name": "deleted.docx",
+                    "type": "DOCX",
+                    "offset": 4096,
+                    "size_kb": 12,
+                    "device": "disk.img",
+                    "integrity": 85,
+                    "source": "mft",
+                    "fs": "NTFS",
+                    "data_runs": [(4096, 4096)],
+                }
+            )
+            progress_cb(100)
+            return 1
+
+    image = tmp_path / "ntfs.img"
+    image.write_bytes(b"NTFS test image")
+    monkeypatch.setattr("app.core.fs_parser.detect_fs", lambda _raw, _fd: _FakeParser())
+
+    def _file_carver_should_not_run():
+        raise AssertionError("quick scan must not instantiate FileCarver")
+
+    monkeypatch.setattr("app.core.file_carver.FileCarver", _file_carver_should_not_run)
+
+    worker = ScanWorker({"device": str(image), "scan_mode": "quick"})
+    batches: list[list[dict]] = []
+    worker.files_batch_found.connect(batches.append)
+
+    worker._run_real()
+
+    assert batches
+    assert calls["enumerate"] == 1
+    assert batches[0][0]["source"] == "mft"
+    assert "simulated" not in batches[0][0]
+
+
+def test_quick_scan_unsupported_emits_no_results_and_no_fake(monkeypatch, qtbot, tmp_path):
+    image = tmp_path / "fat.img"
+    image.write_bytes(b"not ntfs")
+    monkeypatch.setattr("app.core.fs_parser.detect_fs", lambda _raw, _fd: None)
+
+    def _file_carver_should_not_run():
+        raise AssertionError("quick scan must not instantiate FileCarver")
+
+    monkeypatch.setattr("app.core.file_carver.FileCarver", _file_carver_should_not_run)
+
+    worker = ScanWorker({"device": str(image), "scan_mode": "quick"})
+    batches: list[list[dict]] = []
+    statuses: list[str] = []
+    errors: list[str] = []
+    worker.files_batch_found.connect(batches.append)
+    worker.status_text.connect(statuses.append)
+    worker.error.connect(errors.append)
+
+    worker._run_real()
+
+    assert batches == []
+    assert any("Scan rapide non disponible pour cette source" in msg for msg in statuses)
+    assert errors == ["Scan rapide non disponible pour cette source. Lancez un scan profond."]
