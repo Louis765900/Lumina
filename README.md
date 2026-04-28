@@ -22,3 +22,7 @@ Current settings include language, default recovery directory, scan engine, imag
 ## First Launch
 
 When `first_launch_done` is false or the recovery disclaimer has not been accepted, Lumina opens a setup wizard before the Home screen. The wizard collects language, default recovery folder, scan engine, image-first preference, and the mandatory recovery warning.
+
+## Recovery Safety
+
+Before extraction, Lumina always asks for a destination folder, creates it if needed, blocks recovery to a detected source volume, and warns when the destination appears ambiguous, such as an image file and recovery folder on the same Windows drive letter. The last approved recovery folder is saved for the next extraction.

@@ -16,8 +16,10 @@ from pathlib import Path
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from app.core.i18n import t
+from app.core.recovery import ensure_lumina_log
 from app.core.settings import is_demo_enabled
 
+ensure_lumina_log()
 _log = logging.getLogger("lumina.recovery")
 _NATIVE_IMAGE_ONLY_ERROR = "Native engine Phase 4 supports image files only."
 _NATIVE_VALIDATION_WINDOW = 4 * 1024 * 1024
@@ -536,10 +538,12 @@ class ScanWorker(QThread):
         self.progress.emit(0)
 
         if scan_mode == "quick":
+            _log.info("scan_start mode=quick engine=metadata source=%s", raw_dev)
             self._run_quick_metadata(raw_dev)
             return
 
         engine = get_scan_engine()
+        _log.info("scan_start mode=deep engine=%s source=%s", engine, raw_dev)
         if not is_image_source and engine == "native":
             self.error.emit(_NATIVE_IMAGE_ONLY_ERROR)
             return

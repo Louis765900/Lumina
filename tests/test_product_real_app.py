@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -13,6 +14,12 @@ from app.core.settings import (
     validate_settings,
 )
 from app.core.native.settings import get_scan_engine
+from app.core.recovery import (
+    default_recovery_dir,
+    ensure_lumina_log,
+    persist_recovery_dir,
+    validate_recovery_destination,
+)
 from app.workers.scan_worker import ScanWorker
 
 
@@ -285,3 +292,67 @@ def test_setup_wizard_requires_disclaimer(qtbot, monkeypatch):
     settings = wizard.settings()
     assert settings["accepted_disclaimer"] is True
     assert settings["first_launch_done"] is True
+
+
+def test_recovery_destination_is_created_and_valid(tmp_path):
+    dest = tmp_path / "new-recovery-folder"
+
+    check = validate_recovery_destination(
+        [{"device": r"\\.\PhysicalDrive9", "name": "a.bin"}],
+        dest,
+    )
+
+    assert check.blocked is False
+    assert dest.is_dir()
+
+
+def test_recovery_blocks_same_logical_source_drive(tmp_path):
+    drive = Path.cwd().drive
+    if not drive:
+        pytest.skip("drive-letter check is Windows-specific")
+    dest = tmp_path / "recovered"
+
+    check = validate_recovery_destination([{"device": drive}], dest)
+
+    assert check.blocked is True
+    assert check.message == "Vous ne pouvez pas récupérer sur le disque source"
+
+
+def test_recovery_warns_for_image_on_same_drive(tmp_path):
+    image = tmp_path / "source.img"
+    image.write_bytes(b"image")
+    dest = tmp_path / "recovered"
+
+    check = validate_recovery_destination([{"device": str(image)}], dest)
+
+    assert check.blocked is False
+    assert check.warning is True
+    assert "même lettre de lecteur" in check.message
+
+
+def test_recovery_dir_persistence_uses_last_folder(tmp_path):
+    settings_file = tmp_path / "settings.json"
+    dest = tmp_path / "last"
+
+    persist_recovery_dir(dest, settings_file)
+
+    assert default_recovery_dir(settings_file) == str(dest)
+
+
+def test_lumina_log_is_created(tmp_path):
+    log_path = ensure_lumina_log(tmp_path)
+
+    assert log_path.exists() or log_path.parent.exists()
+    assert log_path.name == "lumina.log"
+
+
+def test_empty_extraction_worker_does_not_crash(qtbot, tmp_path):
+    from app.ui.screen_results import _ExtractionWorker
+
+    finished: list[tuple[int, int]] = []
+    worker = _ExtractionWorker([], str(tmp_path))
+    worker.finished.connect(lambda ok, fail: finished.append((ok, fail)))
+
+    worker.run()
+
+    assert finished == [(0, 0)]

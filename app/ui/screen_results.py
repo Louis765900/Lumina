@@ -13,6 +13,13 @@ import threading
 import unicodedata
 import xml.etree.ElementTree as ET
 
+from app.core.recovery import (
+    default_recovery_dir,
+    ensure_lumina_log,
+    persist_recovery_dir,
+    validate_recovery_destination,
+)
+
 _HISTORY_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
     "logs", "history.json",
@@ -37,13 +44,8 @@ _LOG_DIR = os.path.join(
 )
 os.makedirs(_LOG_DIR, exist_ok=True)
 _log = logging.getLogger("lumina.recovery")
-if not _log.handlers:
-    _fh = logging.FileHandler(
-        os.path.join(_LOG_DIR, "lumina.log"), encoding="utf-8"
-    )
-    _fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
-    _log.addHandler(_fh)
-    _log.setLevel(logging.INFO)
+ensure_lumina_log(_LOG_DIR)
+_log.setLevel(logging.INFO)
 
 # ── Palette ──────────────────────────────────────────────────────────────────
 _CARD   = "rgba(255,255,255,0.04)"
@@ -1323,7 +1325,7 @@ class ResultsScreen(QWidget):
     def _on_detail_recover(self, info: dict):
         """Récupération d'un seul fichier depuis le panneau de détail."""
         dest = QFileDialog.getExistingDirectory(
-            self, "Choisir le dossier de destination", os.path.expanduser("~"),
+            self, "Choisir le dossier de destination", self._suggested_recovery_dir(),
         )
         if dest:
             self._start_extraction([info], dest)
@@ -1335,12 +1337,54 @@ class ResultsScreen(QWidget):
         if not selected:
             return
         dest = QFileDialog.getExistingDirectory(
-            self, "Choisir le dossier de destination", os.path.expanduser("~"),
+            self, "Choisir le dossier de destination", self._suggested_recovery_dir(),
         )
         if dest:
             self._start_extraction(selected, dest)
 
+    @staticmethod
+    def _suggested_recovery_dir() -> str:
+        path = default_recovery_dir()
+        try:
+            os.makedirs(path, exist_ok=True)
+        except OSError as exc:
+            _log.warning("Cannot create default recovery directory %s: %s", path, exc)
+        return path
+
     def _start_extraction(self, selected: list[dict], dest: str):
+        check = validate_recovery_destination(selected, dest)
+        if check.blocked:
+            _log.warning(
+                "extraction_blocked destination=%s reason=%s",
+                dest,
+                check.message,
+            )
+            QMessageBox.critical(self, "Destination interdite", check.message)
+            return
+        if check.warning:
+            reply = QMessageBox.warning(
+                self,
+                "Risque de récupération",
+                f"{check.message}\n\nContinuer vers :\n{check.destination} ?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                _log.info(
+                    "extraction_cancelled_after_warning destination=%s",
+                    check.destination,
+                )
+                return
+
+        persist_recovery_dir(check.destination)
+        dest = str(check.destination)
+        _log.info(
+            "extraction_start source=%s destination=%s files=%d",
+            selected[0].get("device", "—") if selected else "—",
+            dest,
+            len(selected),
+        )
+
         if any(f.get("simulated") for f in selected):
             reply = QMessageBox.question(
                 self,
@@ -1389,6 +1433,12 @@ class ResultsScreen(QWidget):
                     f"<span style='color:#F59E0B'>{fail} échec(s)</span>."
                 )
             msg.setInformativeText(f"Dossier de destination :\n{dest}")
+            _log.info(
+                "extraction_finished destination=%s ok=%d fail=%d",
+                dest,
+                ok,
+                fail,
+            )
             open_btn = msg.addButton("📂  Ouvrir le dossier", QMessageBox.ButtonRole.ActionRole)
             msg.addButton("Fermer", QMessageBox.ButtonRole.RejectRole)
             msg.exec()

@@ -179,6 +179,8 @@ Runs a PowerShell `Get-CimInstance Win32_DiskDrive | ConvertTo-Json` command to 
 - `LUMINA_SCAN_ENGINE` remains a developer/CI override. If absent, the persisted `scan_engine` setting is used.
 - Product V1 delivery 3 adds `app/ui/setup_wizard.py`. On startup, Lumina shows the setup wizard when `first_launch_done=false` or `accepted_disclaimer=false`; otherwise Home opens normally.
 - The setup wizard captures language, default recovery directory, scan engine, image-first preference, and the mandatory recovery disclaimer, then saves the validated settings.
+- Product V1 delivery 4 adds recovery destination guardrails in `app/core/recovery.py`: extraction always asks for a destination, starts from the persisted recovery directory, creates the folder when needed, blocks detectable writes to the source volume, warns on ambiguous same-drive image cases, and persists the last approved destination.
+- `logs/lumina.log` is created through `ensure_lumina_log()` and records scan mode/engine/source plus extraction destination, recovered counts, and failures.
 
 ### `DiskDetector` (`app/core/disk_detector.py`)
 Lists **logical drives** only (via `psutil.disk_partitions(all=False)`). WMI physical drives were removed to avoid duplicates. Falls back to a fake `\\.\PhysicalDrive0` simulation entry if no drives found.
