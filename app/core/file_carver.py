@@ -326,6 +326,9 @@ class FileCarver:
         self._plugins: list[BaseCarverPlugin] = []
         # header_bytes -> (extension, footer, plugin_or_None)
         self._header_map: dict[bytes, tuple[str, bytes | None, BaseCarverPlugin | None]] = {}
+        self._signature_id_map: dict[
+            str, tuple[bytes, str, bytes | None, BaseCarverPlugin | None]
+        ] = {}
         self._pattern: re.Pattern[bytes] = re.compile(b"(?!)")
         self._max_header_len: int = 0
 
@@ -399,10 +402,97 @@ class FileCarver:
             b"|".join(re.escape(h) for h in sorted(self._header_map, key=len, reverse=True)),
             re.DOTALL,
         )
+        self._signature_id_map = {
+            self.signature_id(ext, header): (header, ext, footer, plugin)
+            for header, (ext, footer, plugin) in self._header_map.items()
+        }
         _log.info(
             "FileCarver ready: %d plugin(s), %d total signature(s).",
             len(self._plugins), len(self._header_map),
         )
+
+    @staticmethod
+    def signature_id(ext: str, header: bytes) -> str:
+        return f"{ext.lstrip('.')}_{header.hex()}"
+
+    def native_signature_records(self) -> list[tuple[str, str, bytes]]:
+        return [
+            (signature_id, ext, header)
+            for signature_id, (header, ext, _footer, _plugin) in self._signature_id_map.items()
+        ]
+
+    def build_file_info_from_candidate(
+        self,
+        *,
+        signature_id: str,
+        candidate_offset: int,
+        data: bytes,
+        data_base_offset: int,
+        device: str,
+        counter: dict[str, int],
+        dedup_check=None,
+        source: str = "carver",
+    ) -> tuple[dict | None, str | None]:
+        """
+        Validate and convert a signature candidate into Lumina's file_info dict.
+
+        This is shared by the Python regex scanner and the Rust native candidate
+        pipeline so MIME validation, extension refinement, size estimation, ftyp
+        offset correction, and dedup semantics stay identical.
+        """
+        entry = self._signature_id_map.get(signature_id)
+        if entry is None:
+            return None, "unknown_signature"
+
+        header, ext, footer, plugin = entry
+        idx = candidate_offset - data_base_offset
+        if idx < 0 or idx + len(header) > len(data) or data[idx: idx + len(header)] != header:
+            return None, "mismatch"
+
+        if plugin is not None:
+            ext = plugin.refine_extension(data, idx)
+            candidate = data[idx: idx + _MIME_WINDOW]
+
+            if len(candidate) >= plugin.min_size and not plugin.validate_mime(candidate):
+                _log.debug(
+                    "Rejected %s @ %d (MIME validation failed)",
+                    ext,
+                    candidate_offset,
+                )
+                return None, "reject"
+
+            size_kb, integrity = plugin.estimate_size(data, idx, footer)
+        else:
+            if header == b"RIFF":
+                ext = _riff_ext(data, idx)
+            elif ext == ".doc" and header == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
+                ext = _ole2_ext(data, idx)
+            elif header.startswith(b"\x30\x26\xb2\x75"):
+                chunk = data[idx: idx + 48]
+                ext = ".wma" if b"\xf8\x03\x36\x4c\x65\x18\xcf\x11" in chunk else ".wmv"
+
+            size_kb, integrity = self._estimate_size(data, idx, footer, ext)
+
+        ftyp_offset = 4 if header[:4] == b"ftyp" and idx >= 4 else 0
+        abs_offset = candidate_offset - ftyp_offset
+
+        if dedup_check is not None:
+            try:
+                if dedup_check(abs_offset, max(size_kb, 1) * 1024):
+                    return None, "dedup"
+            except Exception as exc:
+                _log.debug("dedup_check raised: %s â€” treating as non-dup.", exc)
+
+        counter[ext] = counter.get(ext, 0) + 1
+        return {
+            "name":      f"recovered_{ext.lstrip('.')}_{counter[ext]:04d}{ext}",
+            "type":      ext.upper().lstrip("."),
+            "offset":    abs_offset,
+            "size_kb":   size_kb,
+            "device":    device,
+            "integrity": integrity,
+            "source":    source,
+        }, None
 
     # ── Scan ──────────────────────────────────────────────────────────────────
     def scan(
@@ -490,6 +580,34 @@ class FileCarver:
 
                     ext, footer, plugin = entry
                     idx = m.start()
+                    file_info, reason = self.build_file_info_from_candidate(
+                        signature_id=self.signature_id(ext, header),
+                        candidate_offset=offset_base + idx,
+                        data=data,
+                        data_base_offset=offset_base,
+                        device=device,
+                        counter=counter,
+                        dedup_check=dedup_check,
+                        source="carver",
+                    )
+                    if file_info is None:
+                        if reason == "reject":
+                            reject_count += 1
+                        elif reason == "dedup":
+                            dedup_count += 1
+                        continue
+
+                    found.append(file_info)
+                    _log.info(
+                        "Found: %s @ offset %d (%d KB, integrity %d%%)",
+                        file_info["name"],
+                        file_info["offset"],
+                        file_info["size_kb"],
+                        file_info["integrity"],
+                    )
+                    if file_found_cb:
+                        file_found_cb(file_info)
+                    continue
 
                     # ── Plugin path: refine + validate + estimate ──────
                     if plugin is not None:

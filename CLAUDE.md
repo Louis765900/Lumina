@@ -761,6 +761,51 @@ Track each major implementation milestone here. Keep entries brief: what was add
   - `python -m pytest`: **148 passed**, 0 failed.
 - **Status**: Phase 3.4 complete. The native helper is now performance-eligible for Phase 4 image-only integration.
 
+### Objective 16 / B1 Phase 4 - ScanWorker image-only native integration
+
+- **Modified**: [app/workers/scan_worker.py](app/workers/scan_worker.py) - wired `NativeScanClient` into the real `ScanWorker` pipeline for local disk-image files only.
+  - Local image detection requires a normal readable file path.
+  - `PhysicalDrive`, logical volumes, VSS, drive roots, and raw `\\.\...` paths remain outside native Phase 4.
+  - If `LUMINA_SCAN_ENGINE=native` is used on a non-image source, `ScanWorker` emits: **"Native engine Phase 4 supports image files only."**
+- **Routing policy**:
+  - `LUMINA_SCAN_ENGINE=python`: always uses the existing Python `FileCarver`; Rust is never constructed.
+  - `LUMINA_SCAN_ENGINE=auto` + image file: attempts Rust native scan; on helper absence/crash/anomaly before UI commit, discards the native transaction buffer and falls back to Python `FileCarver`.
+  - `LUMINA_SCAN_ENGINE=native` + image file: attempts Rust native scan; helper absence/crash/anomaly is explicit and does not silently fall back.
+  - Non-image sources stay on the existing Python path unless native is forced, in which case the image-only error is emitted.
+- **Transaction buffer**:
+  - Native candidate batches are consumed and validated in the worker thread but are not emitted to the UI while the helper is running.
+  - `files_batch_found` is emitted only after native `finished` returns cleanly.
+  - If the native transaction fails before `finished`, the local native buffer is discarded.
+  - Duplicate native candidates are suppressed by `(offset, signature_id)` before validation.
+- **Shared validation path**:
+  - [app/core/file_carver.py](app/core/file_carver.py) now exposes `signature_id()`, `native_signature_records()`, and `build_file_info_from_candidate()`.
+  - Both Python regex carving and native candidate validation use the same MIME validation, extension refinement, size estimation, ftyp offset correction, dedup, naming, and `file_info` construction path.
+  - Native-origin results use `source="native_carver"`; Python fallback keeps `source="carver"`.
+- **Stop behavior**:
+  - `ScanWorker.stop()` is passed to `NativeScanClient`, which sends the helper `stop` command.
+  - If native returns `finished(stopped=true)`, already validated buffered results are committed and no fallback is attempted.
+  - If an anomaly/error happens while stop is requested, the native buffer is discarded and the worker terminates cleanly without fallback.
+- **Packaging**:
+  - [lumina.spec](lumina.spec) now includes `native/lumina_scan/target/release/lumina_scan.exe` as `native/lumina_scan/lumina_scan.exe` when the release helper exists.
+  - This matches the frozen helper resolution path used by `NativeScanClient`.
+- **Tests added**:
+  - [tests/test_scan_worker_native.py](tests/test_scan_worker_native.py) covers image-native routing, forced Python routing, auto fallback when helper is absent, native forced helper absence error, native forced non-image error, transaction discard before fallback, no `files_batch_found` before native `finished`, clean native stop commit, and duplicate suppression.
+- **Benchmark result** (`python scripts/bench_native_carver.py --mode both --size-mb 256 --seeds 5000 --keep-image`, April 28, 2026):
+  - JSON report: `benchmarks/results/native_phase3_1777380526.json`.
+  - Python regex: **15,109 ms**, **16.94 MB/s**, **5,000 candidates**.
+  - Native helper: **297 ms**, **861.66 MB/s**, **5,000 candidates**.
+  - Native wall-clock through Python client: **424 ms**, **603.60 MB/s**.
+  - `seeded_missing_native`: **0**
+  - `parity_missing_vs_python`: **0**
+  - `mismatched_ext`: **0**
+  - `duplicates_native`: **0**
+  - Gate passed.
+- **Verification result**:
+  - `cargo test`: **22 Rust tests passed** (19 library/bin unit tests + 3 protocol integration tests), 0 failed.
+  - `cargo build --release`: success.
+  - `python -m pytest`: **157 passed**, 0 failed.
+- **Status**: Phase 4 image-only integration complete. Native scanning is available in the real worker for local images, while `PhysicalDrive`, VSS, and UI-visible native streaming remain intentionally out of scope.
+
 ### Update policy
 
 Append a new section to this changelog **every time a major implementation is finished**. Keep each entry to: what was added, files touched, key architectural decisions validated.

@@ -1,7 +1,8 @@
 """Native scan helper integration.
 
-Phase 2 exposes a strict JSONL client for the Rust helper, without wiring it
-into ScanWorker or the UI yet.
+Phase 4 wires the strict JSONL client into ScanWorker for local image files
+only. Physical drives, VSS, and UI-visible native streaming are still out of
+scope.
 """
 
 from app.core.native.client import (

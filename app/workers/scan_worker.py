@@ -12,10 +12,13 @@ import os
 import random
 import threading
 import time
+from pathlib import Path
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
 _log = logging.getLogger("lumina.recovery")
+_NATIVE_IMAGE_ONLY_ERROR = "Native engine Phase 4 supports image files only."
+_NATIVE_VALIDATION_WINDOW = 4 * 1024 * 1024
 
 
 class _DedupIndex:
@@ -81,6 +84,21 @@ def _to_raw_device(device: str) -> str:
     if dev.startswith("\\\\"):
         return dev
     raise ValueError(f"Chemin invalide : {dev!r}")
+
+
+def _is_local_image_source(device: str) -> bool:
+    dev = device.strip()
+    if not dev:
+        return False
+    if dev.startswith("\\\\.\\") or dev.startswith("\\\\?\\"):
+        return False
+    if len(dev) == 2 and dev[1] == ":":
+        return False
+    try:
+        path = Path(dev)
+        return path.is_file()
+    except OSError:
+        return False
 
 
 class ScanWorker(QThread):
@@ -269,22 +287,164 @@ class ScanWorker(QThread):
         self.progress.emit(100)
         self.msleep(300)
 
+    def _run_python_carving(
+        self,
+        raw_dev: str,
+        carver,
+        dedup_check,
+        pct_base: int,
+        pct_scale: int,
+    ) -> None:
+        local_batch: list[dict] = []
+        last_emit = time.monotonic()
+
+        def _on_progress(pct: int) -> None:
+            self._pause_event.wait()
+            if not self._stop_requested:
+                self.progress.emit(pct_base + pct * pct_scale // 100)
+
+        def _on_file(info: dict) -> None:
+            nonlocal local_batch, last_emit
+            self._pause_event.wait()
+            with self._lock:
+                self._found_files.append(info)
+            local_batch.append(info)
+            now = time.monotonic()
+            if len(local_batch) >= 50 or (now - last_emit) > 0.2:
+                self.files_batch_found.emit(list(local_batch))
+                local_batch.clear()
+                last_emit = now
+
+        carver.scan(
+            raw_dev,
+            progress_cb=_on_progress,
+            file_found_cb=_on_file,
+            stop_flag=lambda: self._stop_requested,
+            dedup_check=dedup_check,
+        )
+
+        if local_batch:
+            self.files_batch_found.emit(local_batch)
+
+    def _run_native_image_carving(
+        self,
+        *,
+        image_path: str,
+        carver,
+        dedup_check,
+        pct_base: int,
+        pct_scale: int,
+    ) -> None:
+        from app.core.native.client import NativeScanClient
+        from app.core.native.protocol import NativeCandidate, NativeSignature, NativeSource
+
+        image = Path(image_path)
+        source = NativeSource(kind="image", path=str(image), size_bytes=image.stat().st_size)
+        signatures = [
+            NativeSignature(signature_id, ext, header)
+            for signature_id, ext, header in carver.native_signature_records()
+        ]
+        client = NativeScanClient(engine="native")
+        if not client.available():
+            raise RuntimeError(f"native helper not found: {client.helper_path()}")
+
+        native_buffer: list[dict] = []
+        seen: set[tuple[int, str]] = set()
+        counter: dict[str, int] = {}
+
+        self.status_text.emit("Analyse native des signatures binaires...")
+
+        with image.open("rb") as fh:
+
+            def _on_candidates(batch: list[NativeCandidate]) -> None:
+                for candidate in batch:
+                    key = (candidate.offset, candidate.signature_id)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    info = self._native_candidate_to_file_info(
+                        fh,
+                        carver,
+                        image_path,
+                        candidate,
+                        counter,
+                        dedup_check,
+                    )
+                    if info is not None:
+                        native_buffer.append(info)
+
+            def _on_progress(progress) -> None:
+                self._pause_event.wait()
+                if not self._stop_requested:
+                    self.progress.emit(pct_base + progress.percent * pct_scale // 100)
+
+            summary = client.scan_candidates(
+                source,
+                signatures,
+                on_candidates=_on_candidates,
+                on_progress=_on_progress,
+                stop_flag=lambda: self._stop_requested,
+            )
+
+        if summary.stopped:
+            self.status_text.emit("Scan natif annule - validation des resultats partiels.")
+
+        if native_buffer:
+            with self._lock:
+                self._found_files.extend(native_buffer)
+            self.files_batch_found.emit(list(native_buffer))
+
+    def _native_candidate_to_file_info(
+        self,
+        fh,
+        carver,
+        image_path: str,
+        candidate,
+        counter: dict[str, int],
+        dedup_check,
+    ) -> dict | None:
+        window_base = max(0, candidate.offset - 4)
+        fh.seek(window_base)
+        data = fh.read(_NATIVE_VALIDATION_WINDOW)
+        file_info, _reason = carver.build_file_info_from_candidate(
+            signature_id=candidate.signature_id,
+            candidate_offset=candidate.offset,
+            data=data,
+            data_base_offset=window_base,
+            device=image_path,
+            counter=counter,
+            dedup_check=dedup_check,
+            source="native_carver",
+        )
+        return file_info
+
     # ── Mode réel (FS metadata + FileCarver, avec dédup) ─────────────────────
 
     def _run_real(self):
         from app.core.file_carver import FileCarver
         from app.core.fs_parser   import detect_fs
+        from app.core.native.settings import get_scan_engine
 
         device = self._disk.get("device", "")
         if not device:
             self.error.emit("Aucun disque sélectionné.")
             return
 
-        try:
-            raw_dev = _to_raw_device(device)
-        except ValueError as exc:
-            self.error.emit(str(exc))
+        engine = get_scan_engine()
+        is_image_source = _is_local_image_source(device)
+
+        if not is_image_source and engine == "native":
+            self.error.emit(_NATIVE_IMAGE_ONLY_ERROR)
             return
+
+        if is_image_source:
+            raw_dev = str(Path(device))
+        else:
+            try:
+                raw_dev = _to_raw_device(device)
+            except ValueError as exc:
+                self.error.emit(str(exc))
+                return
 
         self.status_text.emit(f"Ouverture du périphérique {raw_dev}…")
         self.progress.emit(0)
@@ -361,36 +521,37 @@ class ScanWorker(QThread):
         pct_scale = 80 if fs_ok else 100
 
         carver = FileCarver()
-        local_batch: list[dict] = []
-        last_emit = time.monotonic()
+        dedup_check = dedup_index.overlaps if fs_ok else None
 
-        def _on_progress(pct: int) -> None:
-            self._pause_event.wait()
-            if not self._stop_requested:
-                self.progress.emit(pct_base + pct * pct_scale // 100)
-
-        def _on_file(info: dict) -> None:
-            nonlocal local_batch, last_emit
-            self._pause_event.wait()
-            with self._lock:
-                self._found_files.append(info)
-            local_batch.append(info)
-            now = time.monotonic()
-            if len(local_batch) >= 50 or (now - last_emit) > 0.2:
-                self.files_batch_found.emit(list(local_batch))
-                local_batch.clear()
-                last_emit = now
-
-        carver.scan(
-            raw_dev,
-            progress_cb=_on_progress,
-            file_found_cb=_on_file,
-            stop_flag=lambda: self._stop_requested,
-            dedup_check=dedup_index.overlaps if fs_ok else None,
-        )
-
-        if local_batch:
-            self.files_batch_found.emit(local_batch)
+        if is_image_source and engine in {"auto", "native"}:
+            try:
+                self._run_native_image_carving(
+                    image_path=raw_dev,
+                    carver=carver,
+                    dedup_check=dedup_check,
+                    pct_base=pct_base,
+                    pct_scale=pct_scale,
+                )
+            except Exception as exc:
+                if self._stop_requested:
+                    _log.warning(
+                        "[ScanWorker] Native scan stopped with error; discarding transaction buffer: %s",
+                        exc,
+                    )
+                    self.status_text.emit("Scan natif annulÃ©.")
+                    return
+                if engine == "auto":
+                    _log.warning(
+                        "[ScanWorker] Native scan failed before UI commit; falling back to Python: %s",
+                        exc,
+                    )
+                    self.status_text.emit("Moteur natif indisponible â€” fallback Python.")
+                    self._run_python_carving(raw_dev, carver, dedup_check, pct_base, pct_scale)
+                else:
+                    self.error.emit(str(exc))
+                    return
+        else:
+            self._run_python_carving(raw_dev, carver, dedup_check, pct_base, pct_scale)
 
         with self._lock:
             n = len(self._found_files)

@@ -8,6 +8,11 @@ block_cipher = None
 _extra_binaries = []
 if os.path.exists('app/core/lumina_engine.dll'):
     _extra_binaries.append(('app/core/lumina_engine.dll', 'app/core'))
+if os.path.exists('native/lumina_scan/target/release/lumina_scan.exe'):
+    _extra_binaries.append((
+        'native/lumina_scan/target/release/lumina_scan.exe',
+        'native/lumina_scan',
+    ))
 
 _extra_datas = [('app/ui/styles.qss', 'app/ui')]
 if os.path.exists('.env'):
