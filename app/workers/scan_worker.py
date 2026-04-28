@@ -361,7 +361,7 @@ class ScanWorker(QThread):
         seen: set[tuple[int, str]] = set()
         counter: dict[str, int] = {}
 
-        self.status_text.emit("Analyse native des signatures binaires...")
+        self.status_text.emit("Moteur natif rapide — analyse des signatures.")
 
         with image.open("rb") as fh:
 
@@ -396,7 +396,7 @@ class ScanWorker(QThread):
             )
 
         if summary.stopped:
-            self.status_text.emit("Scan natif annule - validation des resultats partiels.")
+            self.status_text.emit("Scan interrompu — validation des résultats partiels.")
 
         if native_buffer:
             with self._lock:
@@ -491,7 +491,7 @@ class ScanWorker(QThread):
         return dedup_index, fs_ok, fs_name, count
 
     def _run_quick_metadata(self, raw_dev: str) -> None:
-        self.status_text.emit("Scan rapide metadata — lecture NTFS MFT…")
+        self.status_text.emit("Scan rapide — lecture des métadonnées NTFS.")
         self.progress.emit(0)
 
         _dedup_index, fs_ok, _fs_name, _count = self._enumerate_filesystem_metadata(
@@ -545,6 +545,7 @@ class ScanWorker(QThread):
         engine = get_scan_engine()
         _log.info("scan_start mode=deep engine=%s source=%s", engine, raw_dev)
         if not is_image_source and engine == "native":
+            self.status_text.emit("Moteur natif indisponible pour cette source.")
             self.error.emit(_NATIVE_IMAGE_ONLY_ERROR)
             return
 
@@ -565,9 +566,6 @@ class ScanWorker(QThread):
                 "[ScanWorker] Dédup actif : %d intervalle(s) indexé(s) depuis %s.",
                 len(dedup_index), fs_name,
             )
-
-        # ── Phase 2 : FileCarver — 20-100 % (ou 0-100 % en fallback) ──────────
-        self.status_text.emit("Analyse des signatures binaires (carving brut)…")
 
         pct_base  = 20 if fs_ok else 0
         pct_scale = 80 if fs_ok else 100
@@ -592,19 +590,20 @@ class ScanWorker(QThread):
                         "[ScanWorker] Native scan stopped with error; discarding transaction buffer: %s",
                         exc,
                     )
-                    self.status_text.emit("Scan natif annulÃ©.")
+                    self.status_text.emit("Scan interrompu.")
                     return
                 if engine == "auto":
                     _log.warning(
                         "[ScanWorker] Native scan failed before UI commit; falling back to Python: %s",
                         exc,
                     )
-                    self.status_text.emit("Moteur natif indisponible â€” fallback Python.")
+                    self.status_text.emit("Moteur natif indisponible — moteur compatible Python.")
                     self._run_python_carving(raw_dev, carver, dedup_check, pct_base, pct_scale)
                 else:
                     self.error.emit(str(exc))
                     return
         else:
+            self.status_text.emit("Moteur compatible Python — analyse des signatures.")
             self._run_python_carving(raw_dev, carver, dedup_check, pct_base, pct_scale)
 
         with self._lock:

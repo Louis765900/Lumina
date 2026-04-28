@@ -27,12 +27,14 @@ pytest tests/test_file_carver.py -v
 pytest --cov=app --cov-report=term-missing
 
 # Build executable (PyInstaller)
-pyinstaller lumina.spec
+python -m PyInstaller lumina.spec --noconfirm
 ```
 
 ## Architecture
 
 **Lumina** is a Windows-only PyQt6 desktop app for data recovery. It requires Administrator rights to open raw disk devices (`\\.\C:`, `\\.\PhysicalDrive0`). A UAC re-launch is triggered automatically on startup if not elevated.
+
+Product version: **v1.0.0**.
 
 ### Entry flow
 
@@ -159,7 +161,7 @@ Runs `chkdsk`, `sfc`, or `dism` subprocess. Encodes stdout with `cp850` (Windows
 Loads real image thumbnails from raw disk in a background QThread. Uses `QImage` (thread-safe) and emits `ready(int, QImage)`. Conversion to `QPixmap` happens in the main thread in `_on_thumb_ready`.
 
 ### `_ExtractionWorker` (`screen_results.py`)
-Extracts selected files to a destination folder. For **simulated** files, writes a placeholder text file. For real files, reads bytes directly from the raw device using `os.open` + `os.lseek` + `os.read`. Caps extraction at 500 MB per file.
+Extracts selected files to a validated destination folder. Normal product scans never emit simulated files. For real files, reads bytes directly from the raw device using `os.open` + `os.lseek` + `os.read`. Caps extraction at 500 MB per file.
 
 ### `_SmartWorker` (`screen_tools.py`)
 Runs a PowerShell `Get-CimInstance Win32_DiskDrive | ConvertTo-Json` command to get S.M.A.R.T. data. Handles single-disk (dict) vs multi-disk (list) JSON output. Timeout: 20s.
@@ -181,6 +183,8 @@ Runs a PowerShell `Get-CimInstance Win32_DiskDrive | ConvertTo-Json` command to 
 - The setup wizard captures language, default recovery directory, scan engine, image-first preference, and the mandatory recovery disclaimer, then saves the validated settings.
 - Product V1 delivery 4 adds recovery destination guardrails in `app/core/recovery.py`: extraction always asks for a destination, starts from the persisted recovery directory, creates the folder when needed, blocks detectable writes to the source volume, warns on ambiguous same-drive image cases, and persists the last approved destination.
 - `logs/lumina.log` is created through `ensure_lumina_log()` and records scan mode/engine/source plus extraction destination, recovered counts, and failures.
+- Product V1 delivery 5 finalizes distribution: version `v1.0.0`, PyInstaller windowed tracebacks disabled, `lumina.spec` bundles the Rust helper, plugins, stylesheet, and icon, and `MANUAL_TESTING.md` documents the release checklist.
+- Logs rotate at 5 MB with two backups. Log setup must never crash the app if the log file is inaccessible.
 
 ### `DiskDetector` (`app/core/disk_detector.py`)
 Lists **logical drives** only (via `psutil.disk_partitions(all=False)`). WMI physical drives were removed to avoid duplicates. Falls back to a fake `\\.\PhysicalDrive0` simulation entry if no drives found.

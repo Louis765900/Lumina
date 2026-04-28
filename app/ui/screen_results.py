@@ -42,7 +42,6 @@ _LOG_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
     "logs",
 )
-os.makedirs(_LOG_DIR, exist_ok=True)
 _log = logging.getLogger("lumina.recovery")
 ensure_lumina_log(_LOG_DIR)
 _log.setLevel(logging.INFO)

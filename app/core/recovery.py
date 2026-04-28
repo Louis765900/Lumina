@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Iterable
 
@@ -11,6 +12,7 @@ from app.core.settings import load_settings, save_settings
 _ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_LOG_DIR = _ROOT / "logs"
 _LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+_MAX_LOG_BYTES = 5 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -23,18 +25,27 @@ class DestinationCheck:
 
 def ensure_lumina_log(log_dir: str | Path | None = None) -> Path:
     target_dir = Path(log_dir) if log_dir is not None else _DEFAULT_LOG_DIR
-    target_dir.mkdir(parents=True, exist_ok=True)
     log_path = target_dir / "lumina.log"
     logger = logging.getLogger("lumina")
-    if not any(
-        isinstance(handler, logging.FileHandler)
-        and Path(getattr(handler, "baseFilename", "")) == log_path
-        for handler in logger.handlers
-    ):
-        handler = logging.FileHandler(log_path, encoding="utf-8")
-        handler.setFormatter(logging.Formatter(_LOG_FORMAT))
-        logger.addHandler(handler)
     logger.setLevel(logging.INFO)
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        if not any(
+            isinstance(handler, logging.FileHandler)
+            and Path(getattr(handler, "baseFilename", "")) == log_path
+            for handler in logger.handlers
+        ):
+            handler = RotatingFileHandler(
+                log_path,
+                maxBytes=_MAX_LOG_BYTES,
+                backupCount=2,
+                encoding="utf-8",
+            )
+            handler.setFormatter(logging.Formatter(_LOG_FORMAT))
+            logger.addHandler(handler)
+    except OSError:
+        if not any(isinstance(handler, logging.NullHandler) for handler in logger.handlers):
+            logger.addHandler(logging.NullHandler())
     return log_path
 
 
