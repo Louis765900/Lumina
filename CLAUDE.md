@@ -93,12 +93,12 @@ ResultsScreen.new_scan_requested()      → show_home()
 2. `MainWindow._go_scan(disk)` opens `_ScanModeDialog` (modal, frameless)
 3. User picks **Quick** or **Deep** → `disk["scan_mode"] = "quick" | "deep"`
 4. `ScanScreen.start_scan(disk)` called
-5. `ScanWorker(disk, simulate=(mode == "quick"))` created and started
+5. Production path creates `ScanWorker(disk, simulate=False)` and starts a real scan path
 6. Worker emits `progress(int)`, `status_text(str)`, `files_batch_found(list)` during scan
 7. Worker emits `finished(list)` → `ScanScreen.scan_finished(list)` → `_go_results(files)`
 8. `ResultsScreen.load_results(files)` displays results and writes to history
 
-**Critical**: `simulate=True` = Quick (fake data for demo), `simulate=False` = Deep (real `FileCarver`). Never invert.
+**Critical**: fake/demo scan data is forbidden in the normal product path. `simulate=True` is development-only and must be guarded by `LUMINA_ENABLE_DEMO=1`. Without that variable, quick scan must not emit fake results; until the metadata-only quick scan is implemented, it fails clearly and asks the user to use Deep Scan.
 
 ---
 
@@ -128,7 +128,7 @@ ResultsScreen.new_scan_requested()      → show_home()
     "size_kb":   2048,
     "device":    "C:",
     "integrity": 95,                  # 0–100, estimated recoverability
-    "simulated": True,                # only in Quick scan
+    "simulated": True,                # development-only demo data; forbidden in production
 }
 ```
 
@@ -166,6 +166,16 @@ Runs a PowerShell `Get-CimInstance Win32_DiskDrive | ConvertTo-Json` command to 
 ---
 
 ## Core engine
+
+### Product V1 real-app guardrails
+
+- The normal user journey must never display generated/fake recovery results.
+- The legacy simulation path is retained only for developer testing and requires `LUMINA_ENABLE_DEMO=1`.
+- Quick Scan is no longer allowed to mean fake data. In Product V1 delivery 1 it returns a clear unavailable message; the next delivery implements real metadata-only quick scan.
+- Persistent application settings live in `%APPDATA%/Lumina/settings.json` through `app/core/settings.py`.
+- Settings defaults are safe: French language, `auto` scan engine, image-first preference enabled, disclaimer not accepted, and first launch not completed.
+- `app/core/i18n.py` provides a deliberately small FR/EN dictionary with French fallback.
+- `LUMINA_SCAN_ENGINE` remains a developer/CI override. If absent, the persisted `scan_engine` setting is used.
 
 ### `DiskDetector` (`app/core/disk_detector.py`)
 Lists **logical drives** only (via `psutil.disk_partitions(all=False)`). WMI physical drives were removed to avoid duplicates. Falls back to a fake `\\.\PhysicalDrive0` simulation entry if no drives found.

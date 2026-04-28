@@ -1,0 +1,40 @@
+from __future__ import annotations
+
+TEXT: dict[str, dict[str, str]] = {
+    "fr": {
+        "scan.quick_unavailable": (
+            "Scan rapide reel non disponible pour cette livraison. "
+            "Utilisez Scan profond."
+        ),
+        "scan.demo_disabled": (
+            "Le mode demo est desactive en production. "
+            "Definissez LUMINA_ENABLE_DEMO=1 pour les tests de developpement."
+        ),
+        "scan.engine_native": "Moteur natif rapide",
+        "scan.engine_python": "Moteur compatible Python",
+        "settings.language": "Langue",
+        "settings.recovery_dir": "Dossier de recuperation",
+        "settings.scan_engine": "Moteur de scan",
+        "disclaimer.title": "Avertissement recuperation",
+    },
+    "en": {
+        "scan.quick_unavailable": (
+            "Real quick scan is not available in this release. Use Deep Scan."
+        ),
+        "scan.demo_disabled": (
+            "Demo mode is disabled in production. Set LUMINA_ENABLE_DEMO=1 "
+            "for development tests."
+        ),
+        "scan.engine_native": "Fast native engine",
+        "scan.engine_python": "Compatible Python engine",
+        "settings.language": "Language",
+        "settings.recovery_dir": "Recovery folder",
+        "settings.scan_engine": "Scan engine",
+        "disclaimer.title": "Recovery disclaimer",
+    },
+}
+
+
+def t(key: str, language: str = "fr") -> str:
+    lang = language if language in TEXT else "fr"
+    return TEXT.get(lang, {}).get(key) or TEXT["fr"].get(key) or key

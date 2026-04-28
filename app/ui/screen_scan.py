@@ -18,6 +18,8 @@ from PyQt6.QtWidgets import (
     QPushButton, QVBoxLayout, QWidget,
 )
 
+from app.core.i18n import t
+from app.core.settings import is_demo_enabled
 from app.workers.scan_worker import ScanWorker
 
 # ── Palette ──────────────────────────────────────────────────────────────────
@@ -478,8 +480,15 @@ class ScanScreen(QWidget):
             self._detach_worker(self._worker)
             self._worker = None
 
-        # Scan rapide = simulation ; scan complet = Python réel
-        simulate = (mode == "quick")
+        if mode == "quick" and not is_demo_enabled():
+            self._on_error(t("scan.quick_unavailable"))
+            self._cancel_btn.setEnabled(False)
+            self._pause_btn.setEnabled(False)
+            return
+
+        # Development-only demo path. Production quick scan must never emit
+        # fake results by default.
+        simulate = mode == "quick" and is_demo_enabled()
         self._worker = ScanWorker(disk, simulate=simulate)
         self._worker.progress.connect(self._on_progress)
         self._worker.status_text.connect(self._on_status)

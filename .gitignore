@@ -57,3 +57,5 @@ stitch_results/
 
 # ── Claude Code local config ──────────────────────────────────────────────────
 .claude/
+
+benchmarks/results/*.json

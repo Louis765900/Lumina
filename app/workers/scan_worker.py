@@ -1,9 +1,8 @@
 """
-Lumina v2.0 — Scan Worker (QThread)
+Lumina Scan Worker (QThread)
 
-Deux modes :
-  • simulate=True  → simulation réaliste (mode par défaut, UI/démo)
-  • simulate=False → scan réel via file_carver.py (Python pur, admin requis)
+Production scans are real-only. The legacy simulation path is available only
+when LUMINA_ENABLE_DEMO=1 is set for development.
 """
 
 import bisect
@@ -15,6 +14,9 @@ import time
 from pathlib import Path
 
 from PyQt6.QtCore import QThread, pyqtSignal
+
+from app.core.i18n import t
+from app.core.settings import is_demo_enabled
 
 _log = logging.getLogger("lumina.recovery")
 _NATIVE_IMAGE_ONLY_ERROR = "Native engine Phase 4 supports image files only."
@@ -154,8 +156,10 @@ class ScanWorker(QThread):
         "Finalisation et déduplication des résultats…",
     ]
 
-    def __init__(self, disk: dict, simulate: bool = True, parent=None):
+    def __init__(self, disk: dict, simulate: bool = False, parent=None):
         super().__init__(parent)
+        if simulate and not is_demo_enabled():
+            raise ValueError(t("scan.demo_disabled"))
         self._disk            = disk
         self._simulate        = simulate
         self._stop_requested  = False
@@ -200,6 +204,9 @@ class ScanWorker(QThread):
     # ── Mode simulation ───────────────────────────────────────────────────────
 
     def _run_simulation(self):
+        if not is_demo_enabled():
+            raise RuntimeError(t("scan.demo_disabled"))
+
         device  = self._disk.get("device", "Disque")
         size_gb = self._disk.get("size_gb", 0)
 
