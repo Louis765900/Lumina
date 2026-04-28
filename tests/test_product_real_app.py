@@ -210,3 +210,78 @@ def test_quick_scan_unsupported_emits_no_results_and_no_fake(monkeypatch, qtbot,
     assert batches == []
     assert any("Scan rapide non disponible pour cette source" in msg for msg in statuses)
     assert errors == ["Scan rapide non disponible pour cette source. Lancez un scan profond."]
+
+
+def test_first_launch_false_triggers_setup_wizard_and_saves_settings(tmp_path):
+    from PyQt6.QtWidgets import QDialog
+
+    from app.ui.setup_wizard import ensure_setup_complete
+
+    path = tmp_path / "settings.json"
+    save_settings({"first_launch_done": False, "accepted_disclaimer": False}, path)
+    calls = {"shown": 0}
+
+    class _FakeWizard:
+        def __init__(self, settings, parent=None):
+            calls["shown"] += 1
+            assert settings["first_launch_done"] is False
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+        def settings(self):
+            return {
+                "language": "en",
+                "default_recovery_dir": r"D:\Recovered",
+                "scan_engine": "python",
+                "prefer_image_first": False,
+                "accepted_disclaimer": True,
+                "first_launch_done": True,
+            }
+
+    assert ensure_setup_complete(settings_file=path, dialog_factory=_FakeWizard) is True
+    saved = load_settings(path)
+    assert calls["shown"] == 1
+    assert saved["language"] == "en"
+    assert saved["scan_engine"] == "python"
+    assert saved["accepted_disclaimer"] is True
+    assert saved["first_launch_done"] is True
+
+
+def test_completed_setup_does_not_show_wizard(tmp_path):
+    from app.ui.setup_wizard import ensure_setup_complete
+
+    path = tmp_path / "settings.json"
+    save_settings({"first_launch_done": True, "accepted_disclaimer": True}, path)
+
+    def _should_not_be_called(_settings, _parent=None):
+        raise AssertionError("wizard should not be shown")
+
+    assert ensure_setup_complete(settings_file=path, dialog_factory=_should_not_be_called) is True
+
+
+def test_setup_wizard_requires_disclaimer(qtbot, monkeypatch):
+    from PyQt6.QtWidgets import QMessageBox
+
+    from app.ui.setup_wizard import SetupWizard
+
+    warnings: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        lambda _parent, title, message: warnings.append((title, message)),
+    )
+
+    wizard = SetupWizard({"accepted_disclaimer": False})
+    qtbot.addWidget(wizard)
+
+    assert not wizard.start_btn.isEnabled()
+    wizard.accept()
+    assert wizard.result() == 0
+    assert warnings
+
+    wizard.disclaimer_check.setChecked(True)
+    assert wizard.start_btn.isEnabled()
+    settings = wizard.settings()
+    assert settings["accepted_disclaimer"] is True
+    assert settings["first_launch_done"] is True

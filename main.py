@@ -81,6 +81,11 @@ def main():
             _request_elevation()
         sys.exit(0)
 
+    from app.ui.setup_wizard import ensure_setup_complete
+
+    if not ensure_setup_complete():
+        sys.exit(0)
+
     # Lancer la fenêtre principale
     from app.ui.main_window import MainWindow
     window = MainWindow()

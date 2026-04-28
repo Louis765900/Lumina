@@ -40,6 +40,7 @@ pyinstaller lumina.spec
 main.py
   ├── _is_admin() → ShellExecuteW "runas" if not admin
   ├── loads app/ui/styles.qss globally onto QApplication
+  ├── ensure_setup_complete() → first-launch setup wizard if needed
   └── launches MainWindow (frameless, WA_TranslucentBackground)
 ```
 
@@ -176,6 +177,8 @@ Runs a PowerShell `Get-CimInstance Win32_DiskDrive | ConvertTo-Json` command to 
 - Settings defaults are safe: French language, `auto` scan engine, image-first preference enabled, disclaimer not accepted, and first launch not completed.
 - `app/core/i18n.py` provides a deliberately small FR/EN dictionary with French fallback.
 - `LUMINA_SCAN_ENGINE` remains a developer/CI override. If absent, the persisted `scan_engine` setting is used.
+- Product V1 delivery 3 adds `app/ui/setup_wizard.py`. On startup, Lumina shows the setup wizard when `first_launch_done=false` or `accepted_disclaimer=false`; otherwise Home opens normally.
+- The setup wizard captures language, default recovery directory, scan engine, image-first preference, and the mandatory recovery disclaimer, then saves the validated settings.
 
 ### `DiskDetector` (`app/core/disk_detector.py`)
 Lists **logical drives** only (via `psutil.disk_partitions(all=False)`). WMI physical drives were removed to avoid duplicates. Falls back to a fake `\\.\PhysicalDrive0` simulation entry if no drives found.

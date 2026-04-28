@@ -18,3 +18,7 @@ Lumina stores persistent settings at:
 ```
 
 Current settings include language, default recovery directory, scan engine, image-first preference, disclaimer acceptance, and first-launch state.
+
+## First Launch
+
+When `first_launch_done` is false or the recovery disclaimer has not been accepted, Lumina opens a setup wizard before the Home screen. The wizard collects language, default recovery folder, scan engine, image-first preference, and the mandatory recovery warning.
