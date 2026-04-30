@@ -5,6 +5,19 @@ Lumina — Shared pytest fixtures.
 import pytest
 
 
+@pytest.fixture(scope="session")
+def qapp():
+    """Headless QCoreApplication for QThread signal tests (no display required)."""
+    from PyQt6.QtCore import QCoreApplication
+
+    existing = QCoreApplication.instance()
+    if existing is not None:
+        yield existing
+        return
+    app = QCoreApplication([])
+    yield app
+
+
 @pytest.fixture
 def sample_disk() -> dict:
     """A typical internal disk as returned by DiskDetector.list_disks()."""

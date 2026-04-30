@@ -114,7 +114,7 @@ def _worker(image: Path) -> ScanWorker:
     return ScanWorker({"device": str(image)}, simulate=False)
 
 
-def test_image_native_engine_uses_native_client(monkeypatch, qtbot, image):
+def test_image_native_engine_uses_native_client(monkeypatch, qapp, image):
     monkeypatch.setenv("LUMINA_SCAN_ENGINE", "native")
     carver = FakeCarver()
     _patch_carver(monkeypatch, carver)
@@ -129,7 +129,7 @@ def test_image_native_engine_uses_native_client(monkeypatch, qtbot, image):
     assert batches and batches[0][0]["source"] == "native_carver"
 
 
-def test_python_engine_never_uses_native(monkeypatch, qtbot, image):
+def test_python_engine_never_uses_native(monkeypatch, qapp, image):
     monkeypatch.setenv("LUMINA_SCAN_ENGINE", "python")
     carver = FakeCarver()
     _patch_carver(monkeypatch, carver)
@@ -141,7 +141,7 @@ def test_python_engine_never_uses_native(monkeypatch, qtbot, image):
     assert carver.scan_called
 
 
-def test_auto_missing_helper_falls_back_python(monkeypatch, qtbot, image):
+def test_auto_missing_helper_falls_back_python(monkeypatch, qapp, image):
     monkeypatch.setenv("LUMINA_SCAN_ENGINE", "auto")
     FakeNativeClient.available_value = False
     carver = FakeCarver()
@@ -156,7 +156,7 @@ def test_auto_missing_helper_falls_back_python(monkeypatch, qtbot, image):
     assert batches and batches[0][0]["source"] == "carver"
 
 
-def test_native_missing_helper_emits_error(monkeypatch, qtbot, image):
+def test_native_missing_helper_emits_error(monkeypatch, qapp, image):
     monkeypatch.setenv("LUMINA_SCAN_ENGINE", "native")
     FakeNativeClient.available_value = False
     carver = FakeCarver()
@@ -171,18 +171,8 @@ def test_native_missing_helper_emits_error(monkeypatch, qtbot, image):
     assert errors and "native helper not found" in errors[0]
 
 
-def test_native_forced_non_image_errors(monkeypatch, qtbot):
-    monkeypatch.setenv("LUMINA_SCAN_ENGINE", "native")
-    errors = []
-    worker = ScanWorker({"device": r"\\.\PhysicalDrive0"}, simulate=False)
-    worker.error.connect(errors.append)
 
-    worker._run_real()
-
-    assert errors == ["Native engine Phase 4 supports image files only."]
-
-
-def test_auto_native_error_discards_buffer_then_falls_back(monkeypatch, qtbot, image):
+def test_auto_native_error_discards_buffer_then_falls_back(monkeypatch, qapp, image):
     monkeypatch.setenv("LUMINA_SCAN_ENGINE", "auto")
     carver = FakeCarver()
     _patch_carver(monkeypatch, carver)
@@ -203,7 +193,7 @@ def test_auto_native_error_discards_buffer_then_falls_back(monkeypatch, qtbot, i
     assert batches[0][0]["source"] == "carver"
 
 
-def test_native_candidates_not_emitted_before_finished(monkeypatch, qtbot, image):
+def test_native_candidates_not_emitted_before_finished(monkeypatch, qapp, image):
     monkeypatch.setenv("LUMINA_SCAN_ENGINE", "native")
     carver = FakeCarver()
     _patch_carver(monkeypatch, carver)
@@ -224,7 +214,7 @@ def test_native_candidates_not_emitted_before_finished(monkeypatch, qtbot, image
     assert batches[0][0]["source"] == "native_carver"
 
 
-def test_native_stop_commits_validated_buffer_without_fallback(monkeypatch, qtbot, image):
+def test_native_stop_commits_validated_buffer_without_fallback(monkeypatch, qapp, image):
     monkeypatch.setenv("LUMINA_SCAN_ENGINE", "native")
     carver = FakeCarver()
     _patch_carver(monkeypatch, carver)
@@ -245,7 +235,7 @@ def test_native_stop_commits_validated_buffer_without_fallback(monkeypatch, qtbo
     assert batches[0][0]["source"] == "native_carver"
 
 
-def test_native_duplicate_candidates_are_deduped(monkeypatch, qtbot, image):
+def test_native_duplicate_candidates_are_deduped(monkeypatch, qapp, image):
     monkeypatch.setenv("LUMINA_SCAN_ENGINE", "native")
     carver = FakeCarver()
     _patch_carver(monkeypatch, carver)

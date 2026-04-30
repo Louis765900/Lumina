@@ -5,6 +5,17 @@ from pathlib import Path
 
 import pytest
 
+try:
+    import PyQt6.QtWidgets  # noqa: F401
+    HAS_PYQT6_WIDGETS = True
+except (ImportError, OSError):
+    HAS_PYQT6_WIDGETS = False
+
+needs_widgets = pytest.mark.skipif(
+    not HAS_PYQT6_WIDGETS,
+    reason="requires PyQt6 display stack (libEGL)",
+)
+
 from app.core.i18n import t
 from app.core.settings import (
     default_settings,
@@ -115,7 +126,8 @@ def test_simulation_guard_emits_no_fake_results_in_production(monkeypatch):
     assert batches == []
 
 
-def test_quick_scan_user_path_does_not_start_demo_worker(monkeypatch, qtbot):
+@needs_widgets
+def test_quick_scan_user_path_does_not_start_demo_worker(monkeypatch, qapp):
     from app.ui.screen_scan import ScanScreen
 
     class _Signal:
@@ -140,7 +152,7 @@ def test_quick_scan_user_path_does_not_start_demo_worker(monkeypatch, qtbot):
     monkeypatch.delenv("LUMINA_ENABLE_DEMO", raising=False)
     monkeypatch.setattr("app.ui.screen_scan.ScanWorker", _FakeWorker)
     screen = ScanScreen()
-    qtbot.addWidget(screen)
+    _ = screen  # widget created; no qtbot needed
 
     screen.start_scan({"device": "sample.img", "size_gb": 1, "scan_mode": "quick"})
 
@@ -148,7 +160,7 @@ def test_quick_scan_user_path_does_not_start_demo_worker(monkeypatch, qtbot):
     assert _FakeWorker.created[0][1] is False
 
 
-def test_quick_scan_ntfs_uses_metadata_parser_only(monkeypatch, qtbot, tmp_path):
+def test_quick_scan_ntfs_uses_metadata_parser_only(monkeypatch, qapp, tmp_path):
     calls = {"enumerate": 0}
 
     class _FakeParser:
@@ -194,7 +206,7 @@ def test_quick_scan_ntfs_uses_metadata_parser_only(monkeypatch, qtbot, tmp_path)
     assert "simulated" not in batches[0][0]
 
 
-def test_quick_scan_unsupported_emits_no_results_and_no_fake(monkeypatch, qtbot, tmp_path):
+def test_quick_scan_unsupported_emits_no_results_and_no_fake(monkeypatch, qapp, tmp_path):
     image = tmp_path / "fat.img"
     image.write_bytes(b"not ntfs")
     monkeypatch.setattr("app.core.fs_parser.detect_fs", lambda _raw, _fd: None)
@@ -219,6 +231,7 @@ def test_quick_scan_unsupported_emits_no_results_and_no_fake(monkeypatch, qtbot,
     assert errors == ["Scan rapide non disponible pour cette source. Lancez un scan profond."]
 
 
+@needs_widgets
 def test_first_launch_false_triggers_setup_wizard_and_saves_settings(tmp_path):
     from PyQt6.QtWidgets import QDialog
 
@@ -255,6 +268,7 @@ def test_first_launch_false_triggers_setup_wizard_and_saves_settings(tmp_path):
     assert saved["first_launch_done"] is True
 
 
+@needs_widgets
 def test_completed_setup_does_not_show_wizard(tmp_path):
     from app.ui.setup_wizard import ensure_setup_complete
 
@@ -267,7 +281,8 @@ def test_completed_setup_does_not_show_wizard(tmp_path):
     assert ensure_setup_complete(settings_file=path, dialog_factory=_should_not_be_called) is True
 
 
-def test_setup_wizard_requires_disclaimer(qtbot, monkeypatch):
+@needs_widgets
+def test_setup_wizard_requires_disclaimer(qapp, monkeypatch):
     from PyQt6.QtWidgets import QMessageBox
 
     from app.ui.setup_wizard import SetupWizard
@@ -280,7 +295,7 @@ def test_setup_wizard_requires_disclaimer(qtbot, monkeypatch):
     )
 
     wizard = SetupWizard({"accepted_disclaimer": False})
-    qtbot.addWidget(wizard)
+    wizard.show()  # ensure widget is realized (no qtbot needed)
 
     assert not wizard.start_btn.isEnabled()
     wizard.accept()
@@ -346,7 +361,8 @@ def test_lumina_log_is_created(tmp_path):
     assert log_path.name == "lumina.log"
 
 
-def test_empty_extraction_worker_does_not_crash(qtbot, tmp_path):
+@needs_widgets
+def test_empty_extraction_worker_does_not_crash(qapp, tmp_path):
     from app.ui.screen_results import _ExtractionWorker
 
     finished: list[tuple[int, int]] = []

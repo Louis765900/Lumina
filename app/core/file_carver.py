@@ -435,6 +435,31 @@ class FileCarver:
 
             size_kb, integrity = plugin.estimate_size(data, idx, footer)
         else:
+            # ── Legacy format validation before size estimation ────────────
+            if header == b"MZ":
+                # Require a valid PE header: bytes 0x3C-0x3F hold the PE offset.
+                pe_off_pos = idx + 0x3C
+                if pe_off_pos + 4 > len(data):
+                    return None, "reject"
+                pe_off = int.from_bytes(data[pe_off_pos:pe_off_pos + 4], "little")
+                pe_sig_pos = idx + pe_off
+                if (
+                    pe_off < 4
+                    or pe_sig_pos + 4 > len(data)
+                    or data[pe_sig_pos:pe_sig_pos + 4] != b"PE\x00\x00"
+                ):
+                    return None, "reject"
+
+            elif header == b"BM":
+                # BMP reserved bytes 6-9 must be zero; pixel-data offset must be sane.
+                if idx + 14 > len(data):
+                    return None, "reject"
+                if data[idx + 6:idx + 10] != b"\x00\x00\x00\x00":
+                    return None, "reject"
+                pix_off = int.from_bytes(data[idx + 10:idx + 14], "little")
+                if pix_off < 26 or pix_off > 16384:
+                    return None, "reject"
+
             if header == b"RIFF":
                 ext = _riff_ext(data, idx)
             elif ext == ".doc" and header == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":

@@ -655,6 +655,8 @@ class _FileDetailPanel(QWidget):
 class ResultsScreen(QWidget):
     new_scan_requested = pyqtSignal()
 
+    _PAGE_SIZE = 500
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setStyleSheet("background: transparent;")
@@ -665,6 +667,7 @@ class ResultsScreen(QWidget):
         self._search_text    = ""
         self._sort_key       = "integrity"
         self._thumb_loader: _ThumbnailLoader | None = None
+        self._displayed_count: int = 0
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -852,10 +855,33 @@ class ResultsScreen(QWidget):
         self._empty_lbl.hide()
         root.addWidget(self._empty_lbl)
 
+        # ── Bouton "Charger X fichiers de plus" ───────────────────────────────
+        self._load_more_btn = QPushButton()
+        self._load_more_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self._load_more_btn.setFixedHeight(42)
+        self._load_more_btn.setStyleSheet(
+            "QPushButton { background: rgba(0,122,255,0.1); border: 1px solid rgba(0,122,255,0.3);"
+            "  border-radius: 10px; color: #007AFF; font-size: 12px; font-weight: 600; padding: 10px 24px; }"
+            "QPushButton:hover { background: rgba(0,122,255,0.2); }"
+        )
+        self._load_more_btn.clicked.connect(self._load_more)
+        self._load_more_btn.hide()
+
+        load_more_wrap = QWidget()
+        load_more_wrap.setStyleSheet("background: transparent;")
+        load_more_lay = QHBoxLayout(load_more_wrap)
+        load_more_lay.setContentsMargins(40, 8, 40, 16)
+        load_more_lay.addStretch()
+        load_more_lay.addWidget(self._load_more_btn)
+        load_more_lay.addStretch()
+        root.addWidget(load_more_wrap)
+        self._load_more_wrap = load_more_wrap
+
     # ── API publique ──────────────────────────────────────────────────────────
 
     def load_results(self, files: list[dict]):
         self._all_files = files
+        self._displayed_count = 0
         n = len(files)
         if n == 0:
             self._count_lbl.setText("Aucun fichier récupérable trouvé sur ce disque.")
@@ -914,15 +940,18 @@ class ResultsScreen(QWidget):
 
     def _set_filter(self, label: str):
         self._active_filter = label
+        self._displayed_count = 0
         self._update_filter_styles()
         self._rebuild_grid()
 
     def _on_search(self, text: str):
         self._search_text = _normalize(text)
+        self._displayed_count = 0
         self._rebuild_grid()
 
     def _on_sort_changed(self, idx: int):
         self._sort_key = ("integrity", "size", "name", "type")[idx]
+        self._displayed_count = 0
         self._rebuild_grid()
 
     def _update_filter_counts(self):
@@ -1019,13 +1048,22 @@ class ResultsScreen(QWidget):
             else:
                 self._empty_lbl.setText("Aucun fichier ne correspond à ce filtre ou à cette recherche.")
             self._empty_lbl.show()
+            self._load_more_btn.hide()
             self._recover_btn.setEnabled(False)
             return
 
         self._empty_lbl.hide()
 
+        # Pagination : on affiche au plus _displayed_count fichiers.
+        # Si _displayed_count == 0, on initialise à _PAGE_SIZE.
+        if self._displayed_count == 0:
+            self._displayed_count = self._PAGE_SIZE
+
+        to_display = visible[: self._displayed_count]
+        reste = len(visible) - len(to_display)
+
         cols = 6   # nombre de colonnes
-        for i, info in enumerate(visible):
+        for i, info in enumerate(to_display):
             thumb = FileThumb(info)
             thumb.selection_changed.connect(self._on_selection_changed)
             thumb.detail_requested.connect(self._on_detail_requested)
@@ -1034,6 +1072,15 @@ class ResultsScreen(QWidget):
 
         self._on_selection_changed(False)   # mettre à jour le bouton Récupérer
 
+        # Bouton "Charger X fichiers de plus"
+        if reste > 0:
+            plural = "s" if reste > 1 else ""
+            self._load_more_btn.setText(f"Charger {reste} fichier{plural} de plus")
+            self._load_more_btn.show()
+            self._load_more_wrap.show()
+        else:
+            self._load_more_btn.hide()
+
         # ── Chargement asynchrone des vraies miniatures images ───────────────
         if self._thumb_loader:
             self._thumb_loader.stop()
@@ -1041,7 +1088,7 @@ class ResultsScreen(QWidget):
             self._thumb_loader = None
 
         image_items = [
-            (i, info) for i, info in enumerate(visible)
+            (i, info) for i, info in enumerate(to_display)
             if info.get("type", "").upper() in _THUMB_IMAGE_TYPES
             and not info.get("simulated")
             and info.get("device")
@@ -1050,6 +1097,11 @@ class ResultsScreen(QWidget):
             self._thumb_loader = _ThumbnailLoader(image_items)
             self._thumb_loader.ready.connect(self._on_thumb_ready)
             self._thumb_loader.start()
+
+    def _load_more(self):
+        """Charge une page supplémentaire de FileThumb."""
+        self._displayed_count += self._PAGE_SIZE
+        self._rebuild_grid()
 
     def _on_thumb_ready(self, idx: int, image: QImage):
         """Reçu depuis _ThumbnailLoader — conversion QImage → QPixmap dans le thread principal."""

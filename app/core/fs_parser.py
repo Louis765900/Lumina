@@ -666,12 +666,390 @@ def _apply_fixups(data: bytearray) -> bool:
     return ok
 
 
+# ── FAT32Parser ────────────────────────────────────────────────────────────────
+
+class FAT32Parser(BaseFSParser):
+    """
+    Reads a raw device (fd already opened by ScanWorker) and enumerates ALL
+    files (active and deleted) found in the FAT32 directory tree.
+
+    Layout references:
+      - Boot sector BPB at offset 0 of the FAT32 volume.
+      - FAT at fat_start (reserved sectors * bytes_per_sector).
+      - Data region starts at data_start.
+      - Root directory starts at root_cluster (BPB[0x2C]).
+      - Each 32-byte directory entry follows Microsoft FAT32 specification.
+    """
+
+    name = "FAT32"
+
+    # Directory entry attribute flags
+    _ATTR_LFN       = 0x0F
+    _ATTR_DIR       = 0x10
+    _ATTR_ARCHIVE   = 0x20
+
+    # Special first-byte values
+    _ENTRY_DELETED  = 0xE5
+    _ENTRY_END      = 0x00
+
+    def __init__(self, raw_device: str, fd: int) -> None:
+        super().__init__(raw_device, fd)
+        # Parsed BPB fields (set by probe())
+        self._bytes_per_sector: int = 0
+        self._cluster_size:     int = 0
+        self._fat_start:        int = 0
+        self._data_start:       int = 0
+        self._root_cluster:     int = 0
+        self._ready:            bool = False
+
+    # ── BaseFSParser contract ─────────────────────────────────────────────────
+
+    def probe(self) -> bool:
+        """Return True iff the volume at fd contains a FAT32 filesystem."""
+        try:
+            return self._parse_bpb()
+        except Exception as exc:
+            _log.debug("[FAT32Parser] probe() raised %s — silent fallback.", exc)
+            return False
+
+    def enumerate_files(
+        self,
+        stop_flag: Callable[[], bool],
+        progress_cb: Callable[[int], None],
+        file_found_cb: Callable[[dict], None],
+    ) -> int:
+        if not self._ready:
+            if not self.probe():
+                return 0
+        visited: set[int] = set()
+        count = self._walk_dir(
+            cluster=self._root_cluster,
+            path_prefix="/",
+            stop_flag=stop_flag,
+            file_found_cb=file_found_cb,
+            visited=visited,
+        )
+        progress_cb(100)
+        _log.info("[FAT32Parser] FAT32 enumeration complete: %d files found.", count)
+        return count
+
+    # ── BPB parsing ───────────────────────────────────────────────────────────
+
+    def _parse_bpb(self) -> bool:
+        """
+        Read and validate the FAT32 BPB.  Populates instance fields.
+        Returns False if the boot sector is absent or not FAT32.
+        """
+        data = self._read_raw(0, 512)
+        if len(data) < 90:
+            return False
+
+        # Filesystem type string is at bytes 82–89 ("FAT32   ")
+        fs_type = data[0x52:0x5A]
+        if fs_type != b"FAT32   ":
+            _log.debug(
+                "[FAT32Parser] Not FAT32 (type string=%r).", fs_type
+            )
+            return False
+
+        bps = struct.unpack_from("<H", data, 0x0B)[0]   # bytes per sector
+        spc = data[0x0D]                                  # sectors per cluster
+        reserved = struct.unpack_from("<H", data, 0x0E)[0]
+        num_fats  = data[0x10]
+        spf32    = struct.unpack_from("<I", data, 0x24)[0]  # sectors per FAT (FAT32)
+        root_clus = struct.unpack_from("<I", data, 0x2C)[0]
+
+        if bps == 0 or spc == 0 or num_fats == 0 or spf32 == 0:
+            _log.debug(
+                "[FAT32Parser] Invalid BPB fields (BPS=%d SPC=%d FATs=%d SPF=%d).",
+                bps, spc, num_fats, spf32,
+            )
+            return False
+
+        self._bytes_per_sector = bps
+        self._cluster_size     = bps * spc
+        self._fat_start        = reserved * bps
+        self._data_start       = (reserved + num_fats * spf32) * bps
+        self._root_cluster     = root_clus
+        self._ready            = True
+
+        _log.info(
+            "[FAT32Parser] BPB OK — BPS=%d, SPC=%d, cluster=%d B, "
+            "FAT@%d, data@%d, root_cluster=%d.",
+            bps, spc, self._cluster_size,
+            self._fat_start, self._data_start, root_clus,
+        )
+        return True
+
+    # ── Cluster chain helpers ─────────────────────────────────────────────────
+
+    def _cluster_offset(self, cluster: int) -> int:
+        """Absolute byte offset of the first byte of *cluster* on the device."""
+        return self._data_start + (cluster - 2) * self._cluster_size
+
+    def _next_cluster(self, cluster: int) -> int:
+        """
+        Follow one FAT32 chain link.
+        Returns the next cluster number, or 0x0FFF_FFFF (EOC sentinel) on any
+        error or when the chain ends.
+        """
+        _EOC = 0x0FFF_FFFF
+        try:
+            fat_off = self._fat_start + cluster * 4
+            raw = self._read_raw(fat_off, 4)
+            if len(raw) < 4:
+                return _EOC
+            val = struct.unpack_from("<I", raw, 0)[0] & 0x0FFF_FFFF
+            return val
+        except OSError:
+            return _EOC
+
+    def _collect_chain(self, start_cluster: int) -> list[int]:
+        """Return the ordered list of clusters in a chain (cycle-safe, max 65536)."""
+        _EOC_MIN = 0x0FFF_FFF8
+        chain: list[int] = []
+        seen: set[int] = set()
+        cur = start_cluster
+        while cur >= 2 and cur < _EOC_MIN and cur not in seen:
+            seen.add(cur)
+            chain.append(cur)
+            cur = self._next_cluster(cur)
+            if len(chain) > 65_536:      # safety cap for enormous chains
+                break
+        return chain
+
+    # ── Directory walker ──────────────────────────────────────────────────────
+
+    def _walk_dir(
+        self,
+        cluster: int,
+        path_prefix: str,
+        stop_flag: Callable[[], bool],
+        file_found_cb: Callable[[dict], None],
+        visited: set[int],
+    ) -> int:
+        """
+        Recursively enumerate all 32-byte directory entries in the cluster chain
+        rooted at *cluster*.  Emits both active and deleted files via
+        *file_found_cb*.  Returns the number of file entries emitted (dirs not
+        counted).
+        """
+        if cluster in visited or cluster < 2:
+            return 0
+        visited.add(cluster)
+
+        chain = self._collect_chain(cluster)
+        lfn_fragments: list[tuple[int, str]] = []   # (seq, chars)
+        subdirs: list[tuple[int, str]] = []          # (cluster, path)
+        count = 0
+
+        for clus in chain:
+            if stop_flag():
+                return count
+            offset = self._cluster_offset(clus)
+            try:
+                raw = self._read_raw(offset, self._cluster_size)
+            except OSError as exc:
+                _log.debug("[FAT32Parser] Cluster %d read error: %s", clus, exc)
+                continue
+
+            num_entries = len(raw) // 32
+            for i in range(num_entries):
+                if stop_flag():
+                    return count
+                entry = raw[i * 32:(i + 1) * 32]
+                if len(entry) < 32:
+                    break
+
+                first_byte = entry[0]
+                attr       = entry[0x0B]
+
+                # End-of-directory marker
+                if first_byte == self._ENTRY_END:
+                    break
+
+                # LFN entry — accumulate fragments
+                if attr == self._ATTR_LFN:
+                    seq_raw = entry[0x00] & 0x1F   # mask off the "last" flag (0x40)
+                    chars = (
+                        entry[0x01:0x0B]   # chars 1-5
+                        + entry[0x0E:0x1A]  # chars 6-11
+                        + entry[0x1C:0x1E]  # chars 12-13
+                    )
+                    try:
+                        text = chars.decode("utf-16-le", errors="replace").rstrip("\x00￿")
+                    except Exception:
+                        text = ""
+                    lfn_fragments.append((seq_raw, text))
+                    continue
+
+                # Skip volume-label entries (attr 0x08)
+                if attr & 0x08 and not (attr & self._ATTR_DIR):
+                    lfn_fragments = []
+                    continue
+
+                is_deleted = first_byte == self._ENTRY_DELETED
+
+                # Resolve name (prefer LFN if available)
+                if lfn_fragments:
+                    # LFN fragments arrive in reverse order (highest seq first)
+                    lfn_fragments.sort(key=lambda x: x[0])
+                    long_name = "".join(text for _, text in lfn_fragments)
+                    name = long_name if long_name.strip() else None
+                    lfn_fragments = []
+                else:
+                    name = None
+
+                if name is None:
+                    # Fall back to 8.3 short name
+                    raw_stem = entry[0x00:0x08]
+                    raw_ext  = entry[0x08:0x0B]
+                    # Fix deleted-entry first byte
+                    if is_deleted and raw_stem[0:1] == b"\xe5":
+                        raw_stem = b"_" + raw_stem[1:]
+                    stem = raw_stem.rstrip(b" ").decode("latin-1", errors="replace")
+                    ext3 = raw_ext.rstrip(b" ").decode("latin-1", errors="replace")
+                    name = (stem + "." + ext3) if ext3 else stem
+
+                name = name.strip()
+                if not name or name in (".", ".."):
+                    continue
+
+                # Starting cluster (high 16 in 0x14, low 16 in 0x1A)
+                hi  = struct.unpack_from("<H", entry, 0x14)[0]
+                lo  = struct.unpack_from("<H", entry, 0x1A)[0]
+                start_cluster = (hi << 16) | lo
+
+                # Directory — recurse later (avoid deep recursion in large trees)
+                if attr & self._ATTR_DIR:
+                    child_path = path_prefix.rstrip("/") + "/" + name
+                    if start_cluster >= 2 and start_cluster not in visited:
+                        subdirs.append((start_cluster, child_path + "/"))
+                    continue
+
+                # Regular file (active or deleted)
+                file_size = struct.unpack_from("<I", entry, 0x1C)[0]
+                byte_offset = self._cluster_offset(start_cluster) if start_cluster >= 2 else 0
+
+                dot = name.rfind(".")
+                if 0 < dot < len(name) - 1:
+                    ftype = name[dot + 1:].upper()
+                else:
+                    ftype = "UNKNOWN"
+
+                mft_path = path_prefix + name
+                integrity = 70 if is_deleted else 85
+
+                file_info: dict = {
+                    "name":      name,
+                    "type":      ftype,
+                    "offset":    byte_offset,
+                    "size_kb":   max(1, file_size // 1024),
+                    "device":    self._device,
+                    "integrity": integrity,
+                    "mft_path":  mft_path,
+                    "source":    "fat32",
+                    "fs":        "FAT32",
+                    "data_runs": [(byte_offset, file_size)] if byte_offset > 0 else [],
+                }
+                file_found_cb(file_info)
+                count += 1
+
+        # Recurse into subdirectories
+        for sub_cluster, sub_path in subdirs:
+            if stop_flag():
+                break
+            count += self._walk_dir(sub_cluster, sub_path, stop_flag, file_found_cb, visited)
+
+        return count
+
+    # ── Low-level I/O (same contract as NTFSParser._read_raw) ─────────────────
+
+    def _read_raw(self, offset: int, size: int) -> bytes:
+        """Seek + read with retry on partial reads (raw devices may short-read)."""
+        os.lseek(self._fd, offset, os.SEEK_SET)
+        buf = b""
+        remaining = size
+        while remaining > 0:
+            chunk = os.read(self._fd, remaining)
+            if not chunk:
+                break
+            buf += chunk
+            remaining -= len(chunk)
+        return buf
+
+
+# ── ExFATParser ────────────────────────────────────────────────────────────────
+
+class ExFATParser(BaseFSParser):
+    """
+    Lightweight exFAT detector.  probe() identifies the volume; enumerate_files()
+    intentionally returns 0 and delegates recovery entirely to the FileCarver
+    signature-carving pass.
+
+    exFAT boot sector OEM name "EXFAT   " lives at bytes 3-10.
+    """
+
+    name = "exFAT"
+
+    def __init__(self, raw_device: str, fd: int) -> None:
+        super().__init__(raw_device, fd)
+
+    # ── BaseFSParser contract ─────────────────────────────────────────────────
+
+    def probe(self) -> bool:
+        """Return True iff the volume is exFAT (OEM name check)."""
+        try:
+            data = self._read_raw(0, 16)
+            if len(data) < 11:
+                return False
+            oem = data[3:11]
+            result = oem == b"EXFAT   "
+            if result:
+                _log.info("[ExFATParser] exFAT volume detected on %s.", self._device)
+            return result
+        except Exception as exc:
+            _log.debug("[ExFATParser] probe() raised %s — silent fallback.", exc)
+            return False
+
+    def enumerate_files(
+        self,
+        stop_flag: Callable[[], bool],
+        progress_cb: Callable[[int], None],
+        file_found_cb: Callable[[dict], None],
+    ) -> int:
+        """
+        exFAT enumeration is not implemented.  The FileCarver carving pass will
+        handle recovery on exFAT volumes.
+        """
+        _log.info(
+            "[ExFATParser] exFAT détecté — carving direct."
+        )
+        progress_cb(100)
+        return 0
+
+    # ── Low-level I/O ──────────────────────────────────────────────────────────
+
+    def _read_raw(self, offset: int, size: int) -> bytes:
+        """Seek + read with retry on partial reads."""
+        os.lseek(self._fd, offset, os.SEEK_SET)
+        buf = b""
+        remaining = size
+        while remaining > 0:
+            chunk = os.read(self._fd, remaining)
+            if not chunk:
+                break
+            buf += chunk
+            remaining -= len(chunk)
+        return buf
+
+
 # ── FS registry ───────────────────────────────────────────────────────────────
 
 # Append new BaseFSParser subclasses (Ext4Parser, ApfsParser, …) here. Order
 # matters only if two parsers could probe() True on the same volume — put the
 # most specific first.
-FS_PARSERS: list[type[BaseFSParser]] = [NTFSParser]
+FS_PARSERS: list[type[BaseFSParser]] = [NTFSParser, FAT32Parser, ExFATParser]
 
 
 def detect_fs(raw_device: str, fd: int) -> BaseFSParser | None:
