@@ -338,7 +338,7 @@ class _ScanModeDialog(QDialog):
         super().__init__(parent)
         self._chosen = "deep"
         self.setModal(True)
-        self.setFixedSize(480, 270)
+        self.setFixedSize(480, 310)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
@@ -370,12 +370,12 @@ class _ScanModeDialog(QDialog):
         modes_row.setSpacing(14)
         self._quick_btn = self._make_mode_card(
             "⚡", "Scan Rapide",
-            "Fichiers récemment supprimés.\nAnalyse MFT : 2–5 min.",
+            "Uniquement fichiers supprimés\nrécemment (MFT NTFS). 2–5 min.",
             active=False,
         )
         self._deep_btn = self._make_mode_card(
             "🔬", "Scan Complet",
-            "Analyse secteur par secteur.\nPlus long mais exhaustif.",
+            "Tous fichiers — photos, vidéos,\ndocs. Analyse complète par signature.",
             active=True,
         )
         self._quick_btn.clicked.connect(lambda: self._select("quick"))
@@ -383,6 +383,17 @@ class _ScanModeDialog(QDialog):
         modes_row.addWidget(self._quick_btn)
         modes_row.addWidget(self._deep_btn)
         lay.addLayout(modes_row)
+
+        note = QLabel(
+            "💡 Scan Complet recommandé pour récupérer photos et vidéos perdues "
+            "depuis longtemps ou sur un disque FAT32/exFAT/ancien HDD."
+        )
+        note.setWordWrap(True)
+        note.setStyleSheet(
+            f"color: {_SUB}; font-size: 11px; background: transparent;"
+            "font-family: 'Inter', 'Segoe UI', Arial;"
+        )
+        lay.addWidget(note)
 
         btns = QHBoxLayout()
         btns.addStretch()

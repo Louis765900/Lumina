@@ -103,6 +103,13 @@ _TYPE_GROUPS: dict[str, set[str]] = {
     "Autres":    set(),   # tout le reste
 }
 
+_SYSTEM_TYPES: frozenset[str] = frozenset({
+    "EXE", "DLL", "SYS", "MSI", "MSP", "MSU",
+    "OCX", "COM", "SCR", "CPL", "PIF",
+    "CAB", "INF", "CAT", "INI",
+    "DAT", "LOG", "TMP", "LNK", "PDB",
+})
+
 
 def _normalize(text: str) -> str:
     return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().lower()
@@ -666,6 +673,7 @@ class ResultsScreen(QWidget):
         self._active_filter  = "Tous"
         self._search_text    = ""
         self._sort_key       = "integrity"
+        self._hide_system    = False
         self._thumb_loader: _ThumbnailLoader | None = None
         self._displayed_count: int = 0
 
@@ -764,6 +772,17 @@ class ResultsScreen(QWidget):
             btn.clicked.connect(lambda _, l=label: self._set_filter(l))
             self._filter_btns[label] = btn
             fb.addWidget(btn)
+
+        # Bouton masquer fichiers système
+        self._sys_toggle = QPushButton("🚫 Système")
+        self._sys_toggle.setFixedHeight(28)
+        self._sys_toggle.setCheckable(True)
+        self._sys_toggle.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self._sys_toggle.setToolTip(
+            "Masquer les fichiers système (EXE, DLL, SYS, TMP…)"
+        )
+        self._sys_toggle.clicked.connect(self._on_sys_toggle)
+        fb.addWidget(self._sys_toggle)
 
         fb.addStretch()
 
@@ -882,6 +901,9 @@ class ResultsScreen(QWidget):
     def load_results(self, files: list[dict]):
         self._all_files = files
         self._displayed_count = 0
+        self._hide_system = False
+        self._sys_toggle.setChecked(False)
+        self._sys_toggle.setStyleSheet("")
         n = len(files)
         if n == 0:
             self._count_lbl.setText("Aucun fichier récupérable trouvé sur ce disque.")
@@ -938,6 +960,17 @@ class ResultsScreen(QWidget):
 
     # ── Filtres & recherche ───────────────────────────────────────────────────
 
+    def _on_sys_toggle(self, checked: bool):
+        self._hide_system = checked
+        self._sys_toggle.setStyleSheet(
+            "QPushButton { background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.4);"
+            "  border-radius: 8px; color: #EF4444; font-size: 11px; font-weight: 600; padding: 0 10px; }"
+            "QPushButton:hover { background: rgba(239,68,68,0.25); }"
+            if checked else ""
+        )
+        self._displayed_count = 0
+        self._rebuild_grid()
+
     def _set_filter(self, label: str):
         self._active_filter = label
         self._displayed_count = 0
@@ -992,6 +1025,10 @@ class ResultsScreen(QWidget):
         result = []
         for f in self._all_files:
             ftype = f.get("type", "").upper()
+
+            # Filtre fichiers système
+            if self._hide_system and ftype in _SYSTEM_TYPES:
+                continue
 
             # Filtre par catégorie
             if self._active_filter != "Tous":
