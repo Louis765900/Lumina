@@ -39,6 +39,21 @@ from app.ui.palette import (
     WARN as _WARN,
 )
 
+# Catégories de types pour le compteur live
+_CAT_MAP: dict[str, set[str]] = {
+    "Images":    {"JPG","JPEG","PNG","BMP","GIF","TIFF","WEBP","HEIC","HEIF","PSD","SVG",
+                  "CR2","CR3","NEF","ARW","DNG","ORF","RW2","RAF","PEF","SRW","AI","EPS","INDD"},
+    "Vidéos":    {"MP4","MOV","MKV","AVI","FLV","WMV","MPG","M2TS","3GP","VOB","RM","MXF","MKA"},
+    "Audio":     {"MP3","WAV","FLAC","AAC","OGG","WMA","M4A","AIFF","OPUS","APE","WV"},
+    "Documents": {"PDF","DOC","DOCX","XLS","XLSX","PPT","PPTX","ODT","ODS","TXT",
+                  "HTML","XML","RTF","EML","PST","VCF","ICS"},
+    "Archives":  {"ZIP","RAR","7Z","GZ","BZ2","XZ","TAR","ISO","EPUB"},
+}
+_CAT_ICONS: dict[str, str] = {
+    "Images": "📷", "Vidéos": "🎬", "Audio": "🎵",
+    "Documents": "📄", "Archives": "📦", "Autres": "📁",
+}
+
 # Icônes par type de fichier
 _ICONS: dict[str, str] = {
     "JPG": "🖼", "JPEG": "🖼", "PNG": "🎨", "BMP": "🖼",
@@ -275,6 +290,10 @@ class ScanScreen(QWidget):
         self._start_time   = 0.0
         self._had_error    = False
         self._speed_buf: deque = deque()
+        self._cat_counts: dict[str, int] = {
+            "Images": 0, "Vidéos": 0, "Audio": 0,
+            "Documents": 0, "Archives": 0, "Autres": 0,
+        }
 
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.setInterval(1000)
@@ -393,6 +412,26 @@ class ScanScreen(QWidget):
             "letter-spacing: 0.8px; background: transparent;"
         )
         top_lay.addWidget(self._eta_lbl)
+        top_lay.addSpacing(10)
+
+        # Compteurs par catégorie (style Recoverit)
+        cat_row = QHBoxLayout()
+        cat_row.setSpacing(6)
+        cat_row.addStretch()
+        self._cat_lbls: dict[str, QLabel] = {}
+        for cat in ("Images", "Vidéos", "Audio", "Documents", "Archives", "Autres"):
+            icon = _CAT_ICONS[cat]
+            lbl = QLabel(f"{icon} {cat}: 0")
+            lbl.setStyleSheet(
+                f"color: {_MUTED}; font-size: 10px; font-weight: 500;"
+                f"background: {_CARD}; border: 1px solid {_BORDER};"
+                "border-radius: 10px; padding: 3px 10px; font-family: 'Inter';"
+            )
+            self._cat_lbls[cat] = lbl
+            cat_row.addWidget(lbl)
+        cat_row.addStretch()
+        top_lay.addLayout(cat_row)
+        top_lay.addSpacing(4)
 
         outer.addWidget(top)
 
@@ -480,6 +519,15 @@ class ScanScreen(QWidget):
         self._speed_buf.clear()
         self._log_list.clear()
         self._deep_scan_btn.hide()
+        self._cat_counts = {k: 0 for k in self._cat_counts}
+        for cat, lbl in self._cat_lbls.items():
+            icon = _CAT_ICONS[cat]
+            lbl.setText(f"{icon} {cat}: 0")
+            lbl.setStyleSheet(
+                f"color: {_MUTED}; font-size: 10px; font-weight: 500;"
+                f"background: {_CARD}; border: 1px solid {_BORDER};"
+                "border-radius: 10px; padding: 3px 10px; font-family: 'Inter';"
+            )
 
         self._ring.setValue(0)
         self._ring.setActive(True)
@@ -548,6 +596,26 @@ class ScanScreen(QWidget):
         self._found_count += len(batch)
         plural = "s" if self._found_count > 1 else ""
         self._counter_lbl.setText(f"✓  {self._found_count} fichier{plural} détecté{plural}")
+
+        for info in batch:
+            ftype = info.get("type", "").upper()
+            cat = "Autres"
+            for c, types in _CAT_MAP.items():
+                if ftype in types:
+                    cat = c
+                    break
+            self._cat_counts[cat] = self._cat_counts.get(cat, 0) + 1
+
+        for cat, lbl in self._cat_lbls.items():
+            n = self._cat_counts.get(cat, 0)
+            if n > 0:
+                icon = _CAT_ICONS[cat]
+                lbl.setText(f"{icon} {cat}: {n}")
+                lbl.setStyleSheet(
+                    f"color: {_TEXT}; font-size: 10px; font-weight: 600;"
+                    "background: rgba(0,122,255,0.1); border: 1px solid rgba(0,122,255,0.3);"
+                    "border-radius: 10px; padding: 3px 10px; font-family: 'Inter';"
+                )
 
         for info in batch:
             ext        = info.get("type", "???").upper()

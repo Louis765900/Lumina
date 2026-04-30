@@ -247,6 +247,64 @@ SIGNATURES: dict[str, list[tuple[bytes, bytes | None]]] = {
         (b"X-Pop: ",      None),
         (b"Return-Path:", None),
     ],
+
+    # ── Additonal RAW / Photo ─────────────────────────────────────────
+    ".dng": [
+        # Adobe DNG — TIFF container with DNG-specific byte sequence
+        # The 4-byte version tag (DNGVersion, tag 0xC612) is usually in the
+        # first IFD. We match a byte that appears after the TIFF header when
+        # DNG sub-IFD chains are present. Kept broad to not miss variants.
+        (b"II*\x00\x08\x00\x00\x00", None),   # LE TIFF + IFD offset = 8
+    ],
+    ".ai": [
+        (b"%PDF-", b"%%EOF"),      # Adobe Illustrator (PDF container)
+    ],
+    ".eps": [
+        (b"%!PS-Adobe", None),
+    ],
+    ".indd": [
+        (b"\x06\x06\xed\xf5\xd8\x1d\x46\xe5\xbd\x31\xef\xe7\xfe\x74\xb7\x1d", None),  # InDesign
+    ],
+
+    # ── Additonal Audio ───────────────────────────────────────────────
+    ".ape": [
+        (b"MAC ", None),      # Monkey's Audio
+    ],
+    ".wv": [
+        (b"wvpk", None),      # WavPack
+    ],
+    ".mka": [
+        (b"\x1a\x45\xdf\xa3", None),  # Matroska Audio (same EBML as MKV)
+    ],
+
+    # ── Additional Video ──────────────────────────────────────────────
+    ".rm": [
+        (b".RMF\x00", None),   # RealMedia
+    ],
+    ".mxf": [
+        # MXF KLV Universal Label
+        (b"\x06\x0e\x2b\x34\x02\x05\x01\x01\x0d\x01\x02\x01\x01\x02", None),
+    ],
+    ".vob": [
+        (b"\x00\x00\x01\xba", None),  # DVD VOB (same pack header as MPG)
+    ],
+
+    # ── Additional Documents ──────────────────────────────────────────
+    ".rtf": [
+        (b"{\\rtf1", b"}"),
+    ],
+    ".accdb": [
+        # MS Access 2007+ (OLE2-based but with ACCDB-specific header bytes)
+        (b"\x00\x01\x00\x00Standard ACE DB", None),
+    ],
+
+    # ── Contact / Calendar ────────────────────────────────────────────
+    ".vcf": [
+        (b"BEGIN:VCARD", b"END:VCARD"),
+    ],
+    ".ics": [
+        (b"BEGIN:VCALENDAR", b"END:VCALENDAR"),
+    ],
 }
 
 
