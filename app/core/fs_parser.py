@@ -219,15 +219,8 @@ class BaseFSParser(ABC):
         stop_flag: Callable[[], bool],
         progress_cb: Callable[[int], None],
         file_found_cb: Callable[[dict], None],
-        active_file_cb: Callable[[list[tuple[int, int]]], None] | None = None,
     ) -> int:
-        """Emit filesystem-level file dicts via file_found_cb. Return the count.
-
-        active_file_cb, when provided, is called for every *non-deleted* regular
-        file with its byte_runs list[(offset, length)].  The caller uses this to
-        register existing-file ranges in the dedup_index so the carver never
-        re-reports still-present system files as recovered files.
-        """
+        """Emit filesystem-level file dicts via file_found_cb. Return the count."""
 
 
 # ── NTFSParser ─────────────────────────────────────────────────────────────────
@@ -266,13 +259,12 @@ class NTFSParser(BaseFSParser):
         stop_flag: Callable[[], bool],
         progress_cb: Callable[[int], None],
         file_found_cb: Callable[[dict], None],
-        active_file_cb: Callable[[list[tuple[int, int]]], None] | None = None,
     ) -> int:
         if self._boot is None:
             self._boot = self.read_boot_sector()
             if self._boot is None:
                 return 0
-        return self.scan_mft(self._boot, stop_flag, progress_cb, file_found_cb, active_file_cb)
+        return self.scan_mft(self._boot, stop_flag, progress_cb, file_found_cb)
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
@@ -298,7 +290,6 @@ class NTFSParser(BaseFSParser):
         stop_flag: Callable[[], bool],
         progress_cb: Callable[[int], None],
         file_found_cb: Callable[[dict], None],
-        active_file_cb: Callable[[list[tuple[int, int]]], None] | None = None,
     ) -> int:
         """
         Two-pass MFT scan:
@@ -343,18 +334,6 @@ class NTFSParser(BaseFSParser):
                     dir_cache[entry.index] = (entry.name, entry.parent_index)
                 elif entry.is_deleted and entry.index > _IDX_MAX_SYSTEM:
                     deleted.append(entry)
-                elif (
-                    not entry.is_deleted
-                    and not (entry.flags & _FLAG_DIR)
-                    and entry.index > _IDX_MAX_SYSTEM
-                    and entry.data_runs
-                    and active_file_cb is not None
-                ):
-                    # Register active (non-deleted) file ranges for dedup so
-                    # the carver skips byte ranges belonging to existing files.
-                    byte_runs = _runs_to_byte_ranges(entry.data_runs, boot)
-                    if byte_runs:
-                        active_file_cb(byte_runs)
 
             pct = min(50, int((batch_start + count) * 50 / max(total, 1)))
             progress_cb(pct)
