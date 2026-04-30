@@ -12,17 +12,18 @@ from PyQt6.QtWidgets import (
     QScrollArea, QVBoxLayout, QWidget,
 )
 
-# ── Palette ──────────────────────────────────────────────────────────────────
-_CARD   = "rgba(255,255,255,0.04)"
-_BORDER = "rgba(255,255,255,0.08)"
-_TEXT   = "#FFFFFF"
-_SUB    = "#94A3B8"
-_MUTED  = "#64748B"
-_ACCENT = "#007AFF"
-_OK     = "#34C759"
-_WARN   = "#F59E0B"
-_ERR    = "#EF4444"
-_HOVER  = "rgba(255,255,255,0.05)"
+from app.ui.palette import (
+    ACCENT as _ACCENT,
+    BORDER as _BORDER,
+    CARD as _CARD,
+    ERR as _ERR,
+    HOVER as _HOVER,
+    MUTED as _MUTED,
+    OK as _OK,
+    SUB as _SUB,
+    TEXT as _TEXT,
+    WARN as _WARN,
+)
 
 
 def _fmt_gb(n_bytes: int) -> str:

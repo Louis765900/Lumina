@@ -27,16 +27,16 @@ from PyQt6.QtWidgets import (
 )
 
 from app.core.disk_detector import DiskDetector
-
-# ── Palette ──────────────────────────────────────────────────────────────────
-_CARD    = "rgba(255,255,255,0.04)"
-_BORDER  = "rgba(255,255,255,0.08)"
-_HBORDER = "rgba(0,122,255,0.5)"
-_TEXT    = "#FFFFFF"
-_SUB     = "#94A3B8"
-_MUTED   = "#64748B"
-_ACCENT  = "#007AFF"
-_HOVER   = "rgba(255,255,255,0.05)"
+from app.ui.palette import (
+    ACCENT as _ACCENT,
+    BORDER as _BORDER,
+    CARD as _CARD,
+    HBORDER as _HBORDER,
+    HOVER as _HOVER,
+    MUTED as _MUTED,
+    SUB as _SUB,
+    TEXT as _TEXT,
+)
 
 # Couleurs par type de disque
 _DTYPE_COLORS = {

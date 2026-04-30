@@ -99,17 +99,17 @@ def test_demo_disabled_by_default():
 def test_simulate_true_is_impossible_without_demo_env(monkeypatch):
     monkeypatch.delenv("LUMINA_ENABLE_DEMO", raising=False)
 
-    with pytest.raises(ValueError, match="mode demo"):
+    with pytest.raises(ValueError, match="LUMINA_ENABLE_DEMO"):
         ScanWorker({"device": "demo.img"}, simulate=True)
 
 
-def test_simulation_guard_emits_no_fake_results_in_production(monkeypatch, qtbot):
+def test_simulation_guard_emits_no_fake_results_in_production(monkeypatch):
     monkeypatch.delenv("LUMINA_ENABLE_DEMO", raising=False)
     worker = ScanWorker({"device": "demo.img"}, simulate=False)
     batches: list[list[dict]] = []
     worker.files_batch_found.connect(batches.append)
 
-    with pytest.raises(RuntimeError, match="mode demo"):
+    with pytest.raises(RuntimeError, match="LUMINA_ENABLE_DEMO"):
         worker._run_simulation()
 
     assert batches == []

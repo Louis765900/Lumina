@@ -22,19 +22,20 @@ from app.core.i18n import t
 from app.core.settings import is_demo_enabled
 from app.workers.scan_worker import ScanWorker
 
-# ── Palette ──────────────────────────────────────────────────────────────────
-_CARD    = "rgba(255,255,255,0.03)"
-_BORDER  = "rgba(255,255,255,0.08)"
-_TEXT    = "#FFFFFF"
-_SUB     = "#94A3B8"
-_MUTED   = "#64748B"
-_ACCENT  = "#007AFF"
-_ACCENT2 = "#34AADC"
-_OK      = "#34C759"
-_OK_BG   = "rgba(52,199,89,0.1)"
-_WARN    = "#F59E0B"
-_ERR     = "#EF4444"
-_HOVER   = "rgba(255,255,255,0.05)"
+from app.ui.palette import (
+    ACCENT as _ACCENT,
+    ACCENT2 as _ACCENT2,
+    BORDER as _BORDER,
+    CARD as _CARD,
+    ERR as _ERR,
+    HOVER as _HOVER,
+    MUTED as _MUTED,
+    OK as _OK,
+    OK_BG as _OK_BG,
+    SUB as _SUB,
+    TEXT as _TEXT,
+    WARN as _WARN,
+)
 
 # Icônes par type de fichier
 _ICONS: dict[str, str] = {
@@ -591,6 +592,9 @@ class ScanScreen(QWidget):
         self.scan_cancelled.emit()
 
     # ── Déconnexion propre sans bloquer l'UI ─────────────────────────────────
+
+    def is_scanning(self) -> bool:
+        return self._worker is not None and self._worker.isRunning()
 
     @staticmethod
     def _detach_worker(worker):

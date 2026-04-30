@@ -22,15 +22,18 @@ from PyQt6.QtWidgets import (
 )
 
 from app.core.settings import load_settings, save_settings, validate_settings
+from app.ui.palette import (
+    ACCENT as _ACCENT,
+    BG2 as _BG,
+    MUTED as _MUTED,
+    SUB as _SUB,
+    TEXT as _TEXT,
+)
 
-_BG = "#0F1120"
-_CARD = "#1A1B2E"
+# Wizard-specific overrides: solid/opaque values for a modal dialog context
+_CARD   = "#1A1B2E"
 _BORDER = "rgba(255,255,255,0.10)"
-_TEXT = "#FFFFFF"
-_SUB = "#94A3B8"
-_MUTED = "#64748B"
-_ACCENT = "#007AFF"
-_HOVER = "rgba(255,255,255,0.06)"
+_HOVER  = "rgba(255,255,255,0.06)"
 
 
 def needs_setup(settings: Mapping[str, Any]) -> bool:
@@ -230,8 +233,7 @@ def ensure_setup_complete(
     factory = dialog_factory or SetupWizard
     dialog = factory(current, parent)
     result = dialog.exec()
-    accepted = QDialog.DialogCode.Accepted
-    if result != accepted and result != accepted.value:
+    if result != QDialog.DialogCode.Accepted.value:
         return False
 
     save_settings(dialog.settings(), settings_file)

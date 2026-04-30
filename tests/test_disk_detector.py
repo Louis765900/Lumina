@@ -16,13 +16,13 @@ class TestDiskDetector:
         assert isinstance(result, list)
 
     def test_non_empty(self):
-        """list_disks() should never return an empty list (fallback entry exists)."""
+        """list_disks() should return a list (may be empty in CI with no disk access)."""
         result = DiskDetector.list_disks()
-        assert len(result) >= 1
+        assert isinstance(result, list)
 
     def test_disk_dict_keys(self):
         """Each disk dict must have the expected keys."""
-        required_keys = {"device", "name", "size_gb", "size_bytes", "model", "interface"}
+        required_keys = {"device", "name", "size_gb", "used_gb", "size_bytes", "model", "interface"}
         disks = DiskDetector.list_disks()
         for disk in disks:
             assert required_keys.issubset(disk.keys()), (
@@ -59,21 +59,8 @@ class TestDiskDetector:
             assert isinstance(result, list)
             assert len(result) >= 1
 
-    def test_simulation_entry_when_all_fail(self):
-        """When both WMI and psutil fail, a simulated entry should be returned."""
-        import builtins
-
-        original_import = builtins.__import__
-
-        def mock_import(name, *args, **kwargs):
-            if name == "wmi":
-                raise ImportError("mock: no wmi")
-            return original_import(name, *args, **kwargs)
-
-        with (
-            patch("builtins.__import__", side_effect=mock_import),
-            patch("app.core.disk_detector.psutil.disk_partitions", side_effect=Exception),
-        ):
+    def test_empty_when_all_fail(self):
+        """When psutil fails, list_disks() returns an empty list (no fake fallback)."""
+        with patch("app.core.disk_detector.psutil.disk_partitions", side_effect=Exception):
             result = DiskDetector.list_disks()
-            assert len(result) == 1
-            assert "simulation" in result[0]["name"].lower() or "PhysicalDrive" in result[0]["device"]
+            assert result == []

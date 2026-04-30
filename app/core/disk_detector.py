@@ -1,7 +1,7 @@
 """
 Lumina - Disk Detector
-Lists logical drives via psutil. Falls back to a single simulation entry
-when no drives are detected (e.g. in CI environments without disk access).
+Lists logical drives via psutil (disk_partitions + disk_usage).
+Returns an empty list when no drives are accessible (e.g. CI environments).
 """
 
 import psutil
@@ -50,16 +50,5 @@ class DiskDetector:
 
         # Removed WMI Physical Drives to prevent duplicates.
         # Logical drives (C:, D:) are sufficient and more user-friendly.
-
-        if not disks:
-            disks.append({
-                "device": r"\\.\PhysicalDrive0",
-                "name": "Disque principal (simulation)",
-                "size_gb": 512.0,
-                "used_gb": 210.5,
-                "size_bytes": 549_755_813_888,
-                "model": "Generic SSD",
-                "interface": "SATA",
-            })
 
         return disks

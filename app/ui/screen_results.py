@@ -19,6 +19,18 @@ from app.core.recovery import (
     persist_recovery_dir,
     validate_recovery_destination,
 )
+from app.ui.palette import (
+    ACCENT_SELECTION as _ACCENT,
+    BORDER as _BORDER,
+    CARD as _CARD,
+    ERR as _ERR,
+    HOVER as _HOVER,
+    MUTED as _MUTED,
+    OK as _OK,
+    SUB as _SUB,
+    TEXT2 as _TEXT,
+    WARN as _WARN,
+)
 
 _HISTORY_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
@@ -38,24 +50,9 @@ from PyQt6.QtWidgets import (
 )
 
 # ── Logger ───────────────────────────────────────────────────────────────────
-_LOG_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "logs",
-)
 _log = logging.getLogger("lumina.recovery")
-ensure_lumina_log(_LOG_DIR)
+ensure_lumina_log()
 _log.setLevel(logging.INFO)
-
-# ── Palette ──────────────────────────────────────────────────────────────────
-_CARD   = "rgba(255,255,255,0.04)"
-_BORDER = "rgba(255,255,255,0.07)"
-_TEXT   = "#F1F5F9"
-_SUB    = "#94A3B8"
-_MUTED  = "#64748B"
-_ACCENT = "#3B82F6"
-_OK     = "#34C759"
-_WARN   = "#F59E0B"
-_HOVER  = "rgba(255,255,255,0.05)"
 
 # Couleurs de dégradé par type
 _THUMB_GRAD: dict[str, tuple[str, str]] = {
@@ -332,7 +329,7 @@ class _ThumbnailLoader(QThread):
                 max_bytes = min(size_kb * 1024, 2 * 1024 * 1024)   # plafond 2 Mo
                 if max_bytes < 64:
                     continue
-                fd = os.open(dev, os.O_RDONLY | os.O_BINARY)
+                fd = os.open(dev, os.O_RDONLY | getattr(os, "O_BINARY", 0))
                 try:
                     os.lseek(fd, offset, os.SEEK_SET)
                     data = os.read(fd, max_bytes)
@@ -420,7 +417,7 @@ class _ExtractionWorker(QThread):
         # Streaming read + incremental SHA-256 — single disk pass, bounded RAM.
         sha = hashlib.sha256()
         remaining = size_bytes
-        fd = os.open(dev, os.O_RDONLY | os.O_BINARY)
+        fd = os.open(dev, os.O_RDONLY | getattr(os, "O_BINARY", 0))
         try:
             os.lseek(fd, offset, os.SEEK_SET)
             with open(dest_path, "wb") as out:

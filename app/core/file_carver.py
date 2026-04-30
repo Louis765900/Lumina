@@ -508,7 +508,7 @@ class FileCarver:
         reject_count  = 0
 
         try:
-            total_bytes = max_bytes or self._get_device_size(fd)
+            total_bytes = max_bytes or self._get_device_size(device)
             block_size  = _optimal_block_size(total_bytes)
             bytes_read  = 0
             overlap     = b""
@@ -607,14 +607,21 @@ class FileCarver:
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
-    def _get_device_size(self, fd: int) -> int:
-        """Get device size via lseek with a 5-second timeout."""
+    def _get_device_size(self, device: str) -> int:
+        """Get device size via a dedicated FD with a 5-second timeout.
+
+        Opens its own file descriptor so that a timeout cannot leave an orphan
+        thread racing against the main scan FD.
+        """
         result = [0]
 
         def _seek():
             try:
-                result[0] = os.lseek(fd, 0, os.SEEK_END)
-                os.lseek(fd, 0, os.SEEK_SET)
+                tmp_fd = os.open(device, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+                try:
+                    result[0] = os.lseek(tmp_fd, 0, os.SEEK_END)
+                finally:
+                    os.close(tmp_fd)
             except OSError:
                 result[0] = 0
 
@@ -684,3 +691,19 @@ class FileCarver:
             pass
 
         return size_kb, 60  # Header found only: partial confidence
+
+
+# ── Singleton accessor ────────────────────────────────────────────────────────
+
+_carver_instance: FileCarver | None = None
+_carver_lock = threading.Lock()
+
+
+def get_carver() -> FileCarver:
+    """Return the process-wide FileCarver instance (plugins loaded once)."""
+    global _carver_instance
+    if _carver_instance is None:
+        with _carver_lock:
+            if _carver_instance is None:
+                _carver_instance = FileCarver()
+    return _carver_instance

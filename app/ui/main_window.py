@@ -21,16 +21,17 @@ from app.ui.screen_partitions import PartitionsScreen
 from app.ui.screen_repair     import RepairScreen
 from app.ui.screen_tools      import ToolsScreen
 
-# ── Palette ──────────────────────────────────────────────────────────────────
-_BG      = "#0D0E1A"
-_BG2     = "#0F1120"
-_SIDEBAR = "#1a1b27"
-_BORDER  = "rgba(255,255,255,0.08)"
-_TEXT    = "#FFFFFF"
-_SUB     = "#94A3B8"
-_MUTED   = "#64748B"
-_ACCENT  = "#007AFF"
-_HOVER   = "rgba(255,255,255,0.05)"
+from app.ui.palette import (
+    ACCENT as _ACCENT,
+    BG as _BG,
+    BG2 as _BG2,
+    BORDER as _BORDER,
+    HOVER as _HOVER,
+    MUTED as _MUTED,
+    SIDEBAR as _SIDEBAR,
+    SUB as _SUB,
+    TEXT as _TEXT,
+)
 
 # ── Indices des écrans ────────────────────────────────────────────────────────
 IDX_HOME       = 0
@@ -69,7 +70,6 @@ class _TrafficLights(QWidget):
     def __init__(self, win: "MainWindow", parent=None):
         super().__init__(parent)
         self._win = win
-        self._max = False
 
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
@@ -87,11 +87,10 @@ class _TrafficLights(QWidget):
             row.addWidget(btn)
 
     def _toggle_max(self):
-        if self._max:
+        if self._win.isMaximized():
             self._win.showNormal()
         else:
             self._win.showMaximized()
-        self._max = not self._max
 
     def enterEvent(self, e):
         for b, s in [(self._close, "×"), (self._min, "−"), (self._zoom, "+")]:
@@ -589,8 +588,7 @@ class MainWindow(QMainWindow):
     # ── Fermeture ─────────────────────────────────────────────────────────────
 
     def closeEvent(self, event):
-        worker = getattr(self._scan, "_worker", None)
-        if worker and worker.isRunning():
+        if self._scan.is_scanning():
             self.hide()
             self._tray.showMessage(
                 "Lumina",
