@@ -537,10 +537,10 @@ class ScanScreen(QWidget):
         if "illisible" in txt_low or "sector" in txt_low or "bad" in txt_low:
             self._bad_sectors += 1
             self._bad_lbl.setText(f"·  ⚠ {self._bad_sectors} secteur(s) illisible(s)")
-        if text == t("scan.quick_unavailable"):
+        if text in (t("scan.quick_unavailable"), t("scan.quick_few_results")):
             device = self._disk.get("device", "?")
             _log.info(
-                "Quick Scan non disponible sur %s, proposition Deep Scan affichée.", device
+                "Quick Scan insuffisant sur %s, proposition Deep Scan affichée.", device
             )
             self._deep_scan_btn.show()
 

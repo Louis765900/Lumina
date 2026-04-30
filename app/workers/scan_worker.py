@@ -484,7 +484,14 @@ class ScanWorker(QThread):
         else:
             with self._lock:
                 n = len(self._found_files)
-            self.status_text.emit(f"Scan rapide terminé — {n} fichier(s) metadata trouvé(s).")
+            if n == 0:
+                message = t("scan.quick_few_results")
+                self.status_text.emit(message)
+                self.error.emit(message)
+            else:
+                self.status_text.emit(
+                    f"Scan rapide terminé — {n} fichier(s) supprimé(s) récupérable(s)."
+                )
         self.progress.emit(100)
 
     # ── Mode réel (FS metadata + FileCarver, avec dédup) ─────────────────────
