@@ -33,7 +33,7 @@ def sample_usb_disk() -> dict:
 
 @pytest.fixture
 def sample_found_files() -> list[dict]:
-    """Sample list of recovered file dicts."""
+    """Sample list of recovered file dicts matching the file_info schema."""
     return [
         {
             "name": "recovered_jpg_0001.jpg",
@@ -41,6 +41,8 @@ def sample_found_files() -> list[dict]:
             "offset": 1_048_576,
             "size_kb": 2048,
             "device": r"\\.\PhysicalDrive0",
+            "integrity": 95,
+            "source": "carver",
         },
         {
             "name": "recovered_png_0001.png",
@@ -48,6 +50,8 @@ def sample_found_files() -> list[dict]:
             "offset": 5_242_880,
             "size_kb": 768,
             "device": r"\\.\PhysicalDrive0",
+            "integrity": 100,
+            "source": "carver",
         },
         {
             "name": "recovered_pdf_0001.pdf",
@@ -55,5 +59,7 @@ def sample_found_files() -> list[dict]:
             "offset": 10_485_760,
             "size_kb": 512,
             "device": r"\\.\PhysicalDrive0",
+            "integrity": 75,
+            "source": "mft",
         },
     ]

@@ -1,6 +1,7 @@
 """
 Lumina - Disk Detector
-Detects physical drives on Windows using WMI with psutil fallback.
+Lists logical drives via psutil. Falls back to a single simulation entry
+when no drives are detected (e.g. in CI environments without disk access).
 """
 
 import psutil

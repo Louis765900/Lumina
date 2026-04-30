@@ -440,7 +440,7 @@ class ScanWorker(QThread):
         count = 0
 
         try:
-            fd = os.open(raw_dev, os.O_RDONLY | os.O_BINARY)
+            fd = os.open(raw_dev, os.O_RDONLY | getattr(os, "O_BINARY", 0))
             try:
                 self.status_text.emit("Détection du système de fichiers…")
                 parser = detect_fs(raw_dev, fd)

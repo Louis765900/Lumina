@@ -305,7 +305,7 @@ class Sidebar(QWidget):
         root.addStretch()
 
         # Numéro de version
-        ver = QLabel("Lumina v2.0")
+        ver = QLabel("Lumina v1.0.0")
         ver.setStyleSheet(
             f"color: {_MUTED}; font-size: 10px;"
             "font-family: 'Inter', 'Segoe UI', Arial; background: transparent; padding: 2px 12px;"
