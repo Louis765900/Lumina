@@ -77,6 +77,13 @@ _THUMB_GRAD: dict[str, tuple[str, str]] = {
     "7Z":   ("#8B5CF6", "#6D28D9"), "GZ":   ("#64748B", "#475569"),
     "EXE":  ("#64748B", "#334155"), "DLL":  ("#64748B", "#334155"),
     "SQLITE": ("#60A5FA", "#1D4ED8"),
+    "CAB":  ("#94A3B8", "#64748B"), "SWF":  ("#F87171", "#DC2626"),
+    "WMF":  ("#C084FC", "#7C3AED"), "DWG":  ("#FBBF24", "#D97706"),
+    "RTF":  ("#93C5FD", "#2563EB"), "EML":  ("#6EE7B7", "#059669"),
+    "VCF":  ("#34D399", "#059669"), "ICS":  ("#60A5FA", "#2563EB"),
+    "ORF":  ("#FCD34D", "#F59E0B"), "RW2":  ("#FCD34D", "#D97706"),
+    "RAF":  ("#FCD34D", "#B45309"), "CR3":  ("#F97316", "#EA580C"),
+    "NEF":  ("#FCD34D", "#F59E0B"), "ARW":  ("#FCD34D", "#F59E0B"),
 }
 _THUMB_ICON: dict[str, str] = {
     "JPG": "📸", "JPEG": "📸", "PNG": "🎨", "BMP": "🖼", "GIF": "🎭",
@@ -88,18 +95,26 @@ _THUMB_ICON: dict[str, str] = {
     "PPT": "📋", "PPTX": "📋",
     "ZIP": "📦", "RAR": "📦", "7Z": "📦", "GZ": "📦",
     "EXE": "⚙", "DLL": "⚙", "SQLITE": "🗄", "PST": "📧",
+    "CAB": "📦", "SWF": "🎬", "WMF": "🖼", "DWG": "📐",
+    "RTF": "📝", "EML": "📧", "VCF": "👤", "ICS": "📅",
+    "ORF": "📷", "RW2": "📷", "RAF": "📷", "CR3": "📷",
+    "NEF": "📷", "ARW": "📷", "MKA": "🎵", "APE": "🎵", "WV": "🎵",
 }
 
 # Types d'images pour lesquels Qt peut charger les bytes bruts directement
-_THUMB_IMAGE_TYPES = {"JPG", "JPEG", "PNG", "BMP", "GIF", "WEBP"}
+# TIFF est supporté nativement par Qt6 via libtiff.
+_THUMB_IMAGE_TYPES = {"JPG", "JPEG", "PNG", "BMP", "GIF", "WEBP", "TIFF"}
 
 # Groupes de types pour les filtres
 _TYPE_GROUPS: dict[str, set[str]] = {
-    "Images":    {"JPG","JPEG","PNG","BMP","GIF","TIFF","WEBP","HEIC","PSD","SVG","CR2","NEF"},
-    "Vidéos":    {"MP4","MOV","MKV","AVI","FLV","WMV","MPG","M2TS","3GP"},
-    "Audio":     {"MP3","WAV","FLAC","AAC","OGG","WMA","M4A","AIFF","OPUS"},
-    "Documents": {"PDF","DOC","DOCX","XLS","XLSX","PPT","PPTX","ODT","ODS","TXT","HTML","XML"},
-    "Archives":  {"ZIP","RAR","7Z","GZ","BZ2","XZ","TAR","ISO","EPUB"},
+    "Images":    {"JPG","JPEG","PNG","BMP","GIF","TIFF","WEBP","HEIC","HEIF","PSD","SVG",
+                  "CR2","CR3","NEF","ARW","DNG","ORF","RW2","RAF","PEF","SRW","AI","EPS","INDD",
+                  "WMF"},
+    "Vidéos":    {"MP4","MOV","MKV","AVI","FLV","WMV","MPG","M2TS","3GP","VOB","RM","MXF","MKA"},
+    "Audio":     {"MP3","WAV","FLAC","AAC","OGG","WMA","M4A","AIFF","OPUS","APE","WV"},
+    "Documents": {"PDF","DOC","DOCX","XLS","XLSX","PPT","PPTX","ODT","ODS","TXT",
+                  "HTML","XML","RTF","EML","PST","VCF","ICS","DWG","ACCDB"},
+    "Archives":  {"ZIP","RAR","7Z","GZ","BZ2","XZ","TAR","ISO","EPUB","CAB","SWF"},
     "Autres":    set(),   # tout le reste
 }
 
@@ -113,6 +128,17 @@ _SYSTEM_TYPES: frozenset[str] = frozenset({
 
 def _normalize(text: str) -> str:
     return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().lower()
+
+
+def _integrity_label(pct: int) -> str:
+    """Human-readable recoverability label for a given integrity percentage."""
+    if pct >= 90:
+        return "Excellent"
+    if pct >= 75:
+        return "Bon"
+    if pct >= 60:
+        return "Partiel"
+    return "Fragmenté"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -170,7 +196,8 @@ class FileThumb(QWidget):
         size_str   = f"{size_kb / 1024:.1f} Mo" if size_kb >= 1024 else f"{size_kb} Ko"
         integrity  = info.get("integrity", 60)
         int_color  = _OK if integrity >= 90 else (_ACCENT if integrity >= 60 else _WARN)
-        meta_lbl = QLabel(f"{size_str}  ·  {integrity}%")
+        int_lbl_str = _integrity_label(integrity)
+        meta_lbl = QLabel(f"{size_str}  ·  {int_lbl_str}")
         meta_lbl.setStyleSheet(
             f"color: {int_color}; font-size: 10px;"
             "font-family: 'Inter'; background: transparent;"
@@ -201,6 +228,28 @@ class FileThumb(QWidget):
             badge.setStyleSheet(
                 "background: rgba(52,199,89,0.92); color: #0B1A0E;"
                 "border-radius: 9px; font-size: 9px; font-weight: 700;"
+                "font-family: 'Inter'; padding: 0 4px;"
+            )
+
+        # ── Badge statut supprimé/actif ────────────────────────────────────────
+        if info.get("deleted"):
+            del_badge = QLabel("🗑 Supprimé", thumb_area)
+            del_badge.setToolTip("Fichier supprimé — entrée MFT toujours lisible")
+            del_badge.setGeometry(6, 78, 72, 16)
+            del_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            del_badge.setStyleSheet(
+                "background: rgba(245,158,11,0.85); color: #1C1209;"
+                "border-radius: 8px; font-size: 8px; font-weight: 700;"
+                "font-family: 'Inter'; padding: 0 4px;"
+            )
+        elif info.get("source") == "mft" and not info.get("deleted"):
+            act_badge = QLabel("✓ Actif", thumb_area)
+            act_badge.setToolTip("Fichier toujours présent sur le disque")
+            act_badge.setGeometry(6, 78, 50, 16)
+            act_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            act_badge.setStyleSheet(
+                "background: rgba(52,199,89,0.75); color: #0B1A0E;"
+                "border-radius: 8px; font-size: 8px; font-weight: 700;"
                 "font-family: 'Inter'; padding: 0 4px;"
             )
 
@@ -611,6 +660,9 @@ class _FileDetailPanel(QWidget):
             ("🔮", "Mode",    "Simulation" if info.get("simulated") else "Réel"),
         ]
         if info.get("source") == "mft":
+            deleted = info.get("deleted", False)
+            statut  = "🗑  Supprimé" if deleted else "✓  Actif"
+            rows.append(("📋", "Statut",  statut))
             rows.append(("✨", "Origine", f"Nom d'origine ({info.get('fs', 'MFT')})"))
         if mft_path := info.get("mft_path"):
             rows.append(("🗂", "Chemin",  mft_path))
@@ -641,7 +693,8 @@ class _FileDetailPanel(QWidget):
 
         # Intégrité — tertiary (#53e16f) haute / primary (#adc6ff) moyenne / error (#ffb4ab) basse
         integrity = info.get("integrity", 0)
-        self._int_pct_lbl.setText(f"{integrity}%")
+        int_text  = _integrity_label(integrity)
+        self._int_pct_lbl.setText(f"{integrity}%  ·  {int_text}")
         int_col = "#53e16f" if integrity >= 90 else ("#adc6ff" if integrity >= 60 else "#ffb4ab")
         self._int_pct_lbl.setStyleSheet(
             f"color: {int_col}; font-size: 10px; font-weight: 700;"
