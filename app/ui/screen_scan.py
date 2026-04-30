@@ -4,6 +4,7 @@ Anneau circulaire de progression, log de fichiers en temps réel,
 pause / reprise / annulation, ETA, chronomètre.
 """
 
+import logging
 import math
 import random
 import time
@@ -19,6 +20,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.core.i18n import t
+from app.core.recovery import ensure_lumina_log
 from app.core.settings import is_demo_enabled
 from app.workers.scan_worker import ScanWorker
 
@@ -255,6 +257,10 @@ class _FileRow(QWidget):
 #  Écran de scan
 # ═══════════════════════════════════════════════════════════════════════════════
 
+ensure_lumina_log()
+_log = logging.getLogger("lumina.recovery")
+
+
 class ScanScreen(QWidget):
     scan_finished  = pyqtSignal(list)
     scan_cancelled = pyqtSignal()
@@ -263,6 +269,7 @@ class ScanScreen(QWidget):
         super().__init__(parent)
         self.setStyleSheet("background: transparent;")
         self._worker: ScanWorker | None = None
+        self._disk: dict = {}
         self._found_count  = 0
         self._bad_sectors  = 0
         self._start_time   = 0.0
@@ -331,7 +338,22 @@ class ScanScreen(QWidget):
             "font-family: 'SF Mono', Consolas, monospace; background: transparent;"
         )
         top_lay.addWidget(self._status_lbl)
-        top_lay.addSpacing(8)
+        top_lay.addSpacing(4)
+
+        # Bouton "Lancer le Deep Scan" — visible uniquement quand Quick Scan
+        # n'est pas disponible sur la source sélectionnée.
+        self._deep_scan_btn = QPushButton("🔍  Lancer le Scan Complet")
+        self._deep_scan_btn.setFixedSize(220, 34)
+        self._deep_scan_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self._deep_scan_btn.setStyleSheet(
+            f"QPushButton {{ background: {_ACCENT}; color: white; border: none;"
+            "  border-radius: 8px; font-size: 12px; font-weight: 700; }}"
+            "QPushButton:hover { background: #005FCC; }"
+        )
+        self._deep_scan_btn.clicked.connect(self._on_switch_to_deep)
+        self._deep_scan_btn.hide()
+        top_lay.addWidget(self._deep_scan_btn, alignment=Qt.AlignmentFlag.AlignHCenter)
+        top_lay.addSpacing(4)
 
         # Badges de stats
         stats_row = QHBoxLayout()
@@ -450,12 +472,14 @@ class ScanScreen(QWidget):
     # ── API publique ──────────────────────────────────────────────────────────
 
     def start_scan(self, disk: dict):
+        self._disk        = disk
         self._found_count = 0
         self._bad_sectors = 0
         self._start_time  = time.monotonic()
         self._had_error   = False
         self._speed_buf.clear()
         self._log_list.clear()
+        self._deep_scan_btn.hide()
 
         self._ring.setValue(0)
         self._ring.setActive(True)
@@ -513,6 +537,12 @@ class ScanScreen(QWidget):
         if "illisible" in txt_low or "sector" in txt_low or "bad" in txt_low:
             self._bad_sectors += 1
             self._bad_lbl.setText(f"·  ⚠ {self._bad_sectors} secteur(s) illisible(s)")
+        if text == t("scan.quick_unavailable"):
+            device = self._disk.get("device", "?")
+            _log.info(
+                "Quick Scan non disponible sur %s, proposition Deep Scan affichée.", device
+            )
+            self._deep_scan_btn.show()
 
     def _on_batch(self, batch: list):
         self._found_count += len(batch)
@@ -580,6 +610,12 @@ class ScanScreen(QWidget):
             self._ring.setPaused(True)
             self._pause_btn.setText("▶  REPRENDRE")
             self._elapsed_timer.stop()
+
+    def _on_switch_to_deep(self):
+        """Restart current scan in Deep Scan mode without returning to HomeScreen."""
+        self._disk["scan_mode"] = "deep"
+        self._deep_scan_btn.hide()
+        self.start_scan(self._disk)
 
     def _on_cancel(self):
         self._elapsed_timer.stop()

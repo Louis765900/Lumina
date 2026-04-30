@@ -3,6 +3,11 @@ Lumina v2.0 — Écran 6 : Outils avancés
 Rapport S.M.A.R.T. fonctionnel (wmic) ; autres outils prévus dans une future version.
 """
 
+import glob
+import json
+import logging
+import os
+import pathlib
 import subprocess
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
@@ -13,6 +18,7 @@ from PyQt6.QtWidgets import (
     QScrollArea, QVBoxLayout, QWidget,
 )
 
+from app.core.recovery import ensure_lumina_log
 from app.ui.palette import (
     ACCENT as _ACCENT,
     BORDER as _BORDER,
@@ -26,7 +32,8 @@ from app.ui.palette import (
     WARN as _WARN,
 )
 
-# Outils — action=True signale une fonctionnalité réelle
+# Outils — (icon, title, desc, badge, badge_col, available, detail, action_id|None)
+# action_id maps to a ToolsScreen method named f"_{action_id}"
 _TOOLS = [
     ("🔬", "Analyseur Hexadécimal",
      "Explorez le contenu brut de votre disque octet par octet.",
@@ -35,7 +42,8 @@ _TOOLS = [
      "• Parcourez les secteurs bruts (512 o / 4096 o)\n"
      "• Recherchez des signatures de fichiers (magic bytes)\n"
      "• Identifiez les tables de partition MBR/GPT\n"
-     "• Exportez des plages de secteurs en fichier binaire"),
+     "• Exportez des plages de secteurs en fichier binaire",
+     None),
 
     ("📊", "Rapport S.M.A.R.T.",
      "Consultez les indicateurs de santé de votre disque dur.",
@@ -45,7 +53,18 @@ _TOOLS = [
      "• Modèle, numéro de série, révision firmware\n"
      "• Interface (SATA, NVMe, USB…) et capacité\n"
      "• Nombre de partitions et type de média\n"
-     "• Alerte prédictive de panne imminente"),
+     "• Alerte prédictive de panne imminente",
+     "launch_smart"),
+
+    ("🗑", "Effacer les logs",
+     "Supprimez lumina.log, l'historique et les rapports de scan.",
+     "Maintenance", "#64748B", True,
+     "Purge complète des fichiers de log Lumina.\n\n"
+     "• Vide logs/lumina.log\n"
+     "• Réinitialise logs/history.json à []\n"
+     "• Supprime tous les logs/scan_*.json orphelins\n"
+     "• Demande confirmation avant toute action",
+     "purge_logs"),
 
     ("🖧", "Récupération NAS",
      "Récupérez des données depuis un NAS (RAID 0, 1, 5, 6).",
@@ -54,7 +73,8 @@ _TOOLS = [
      "• Supporte RAID 0, 1, 5, 6 et JBOD\n"
      "• Compatible Synology, QNAP, Netgear\n"
      "• Recalcule la parité pour les matrices dégradées\n"
-     "• Monte le volume virtuel pour une récupération normale"),
+     "• Monte le volume virtuel pour une récupération normale",
+     None),
 
     ("🐧", "Récupération Linux/macOS",
      "Lisez les partitions ext4, Btrfs, APFS et HFS+.",
@@ -63,7 +83,8 @@ _TOOLS = [
      "• Lecture ext2 / ext3 / ext4 (Linux)\n"
      "• Lecture Btrfs avec support des instantanés\n"
      "• Lecture APFS et HFS+ (macOS)\n"
-     "• Récupération sur Time Machine et partitions Boot Camp"),
+     "• Récupération sur Time Machine et partitions Boot Camp",
+     None),
 
     ("🔐", "Récupération chiffrée",
      "Récupérez des données sur des volumes BitLocker ou VeraCrypt.",
@@ -72,7 +93,8 @@ _TOOLS = [
      "• BitLocker (mot de passe ou clé de récupération 48 chiffres)\n"
      "• VeraCrypt (volume standard et volume caché)\n"
      "• La clé n'est jamais stockée sur disque\n"
-     "• Compatible avec les disques partiellement corrompus"),
+     "• Compatible avec les disques partiellement corrompus",
+     None),
 
     ("☁",  "Récupération Cloud",
      "Synchronisez et récupérez depuis OneDrive, Google Drive, etc.",
@@ -81,7 +103,8 @@ _TOOLS = [
      "• OneDrive, Google Drive, Dropbox, iCloud\n"
      "• Accède à la corbeille et à l'historique de versions\n"
      "• Télécharge directement vers un dossier local\n"
-     "• Fonctionne même si le client de synchronisation est désinstallé"),
+     "• Fonctionne même si le client de synchronisation est désinstallé",
+     None),
 ]
 
 
@@ -525,6 +548,11 @@ class _ToolCard(QFrame):
 #  Écran outils
 # ═══════════════════════════════════════════════════════════════════════════════
 
+ensure_lumina_log()
+_log = logging.getLogger("lumina.recovery")
+_LOGS_DIR = pathlib.Path(__file__).parent.parent.parent / "logs"
+
+
 class ToolsScreen(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -569,7 +597,7 @@ class ToolsScreen(QWidget):
 
         # Badge info
         dev_badge = QLabel(
-            "✅  Rapport S.M.A.R.T. disponible  ·  "
+            "✅  Rapport S.M.A.R.T. et Effacer les logs disponibles  ·  "
             "🚧  Les autres fonctionnalités arrivent dans une prochaine version."
         )
         dev_badge.setWordWrap(True)
@@ -581,8 +609,8 @@ class ToolsScreen(QWidget):
         lay.addWidget(dev_badge)
         lay.addSpacing(8)
 
-        for icon, title_t, desc, badge, badge_col, available, detail in _TOOLS:
-            action = self._launch_smart if available else None
+        for icon, title_t, desc, badge, badge_col, available, detail, action_id in _TOOLS:
+            action = getattr(self, f"_{action_id}", None) if action_id else None
             lay.addWidget(_ToolCard(icon, title_t, desc, badge, badge_col, available, action, detail))
 
         lay.addStretch()
@@ -616,3 +644,65 @@ class ToolsScreen(QWidget):
             self, "Erreur S.M.A.R.T.",
             f"Impossible de lire les données disque :\n{msg}",
         )
+
+    # ── Purge des logs ────────────────────────────────────────────────────────
+
+    def _purge_logs(self):
+        history_path = _LOGS_DIR / "history.json"
+        log_path     = _LOGS_DIR / "lumina.log"
+        scan_files   = list(_LOGS_DIR.glob("scan_*.json"))
+
+        reply = QMessageBox.question(
+            self,
+            "Effacer les logs",
+            f"Cette action supprimera :\n"
+            f"  • lumina.log\n"
+            f"  • history.json (réinitialisé à [])\n"
+            f"  • {len(scan_files)} rapport(s) scan_*.json\n\n"
+            "Cette opération est irréversible. Continuer ?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        errors: list[str] = []
+
+        # Vider lumina.log
+        try:
+            if log_path.exists():
+                log_path.write_text("", encoding="utf-8")
+        except OSError as e:
+            errors.append(f"lumina.log : {e}")
+
+        # Réinitialiser history.json
+        try:
+            history_path.write_text("[]", encoding="utf-8")
+        except OSError as e:
+            errors.append(f"history.json : {e}")
+
+        # Supprimer les scan_*.json
+        deleted = 0
+        for f in scan_files:
+            try:
+                f.unlink()
+                deleted += 1
+            except OSError as e:
+                errors.append(f"{f.name} : {e}")
+
+        _log.info("Purge des logs effectuée — %d scan_*.json supprimé(s).", deleted)
+
+        if errors:
+            QMessageBox.warning(
+                self, "Purge partielle",
+                "Certains fichiers n'ont pas pu être supprimés :\n\n"
+                + "\n".join(errors),
+            )
+        else:
+            QMessageBox.information(
+                self, "Logs effacés",
+                f"Logs purgés avec succès.\n"
+                f"  • lumina.log vidé\n"
+                f"  • history.json réinitialisé\n"
+                f"  • {deleted} rapport(s) scan supprimé(s)",
+            )

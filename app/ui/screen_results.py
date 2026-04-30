@@ -5,6 +5,7 @@ extraction vers un dossier choisi par l'utilisateur.
 """
 
 import datetime
+import glob
 import hashlib
 import json
 import logging
@@ -412,7 +413,9 @@ class _ExtractionWorker(QThread):
         if len(dev) >= 2 and dev[1] == ":" and not dev.startswith("\\\\.\\"):
             dev = f"\\\\.\\{dev[0].upper()}:"
 
-        size_bytes = min(size_kb * 1024, self._MAX_SIZE)
+        raw_size   = size_kb * 1024
+        size_bytes = min(raw_size, self._MAX_SIZE)
+        truncated  = raw_size > self._MAX_SIZE
 
         # Streaming read + incremental SHA-256 — single disk pass, bounded RAM.
         sha = hashlib.sha256()
@@ -436,6 +439,11 @@ class _ExtractionWorker(QThread):
         info["sha256"]         = sha.hexdigest()
         info["extracted_name"] = os.path.basename(dest_path)
         info["extracted_size"] = size_bytes - remaining
+        if truncated:
+            info["truncated"] = True
+            _log.warning(
+                "Extraction tronquée à 500 MB : %s", info.get("name", "?")
+            )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -887,8 +895,18 @@ class ResultsScreen(QWidget):
             except Exception:
                 history = []
             history.insert(0, entry)
+            history = history[:20]
             with open(_HISTORY_PATH, "w", encoding="utf-8") as fh:
-                json.dump(history[:20], fh, ensure_ascii=False, indent=2)
+                json.dump(history, fh, ensure_ascii=False, indent=2)
+            # Purge orphan scan_*.json not referenced by any history entry
+            referenced = {e.get("scan_file") for e in history}
+            logs_dir = os.path.dirname(_HISTORY_PATH)
+            for orphan in glob.glob(os.path.join(logs_dir, "scan_*.json")):
+                if orphan not in referenced and orphan != scan_path:
+                    try:
+                        os.remove(orphan)
+                    except OSError:
+                        pass
         except Exception:
             pass   # échec silencieux
 
@@ -1291,6 +1309,8 @@ class ResultsScreen(QWidget):
                 ET.SubElement(fo, lumina("mft_path")).text = mft_path
             if info.get("simulated"):
                 ET.SubElement(fo, lumina("simulated")).text = "true"
+            if info.get("truncated"):
+                ET.SubElement(fo, lumina("truncated")).text = "true"
 
         # ── Serialize ───────────────────────────────────────────────────────
         ET.indent(root, space="  ")
@@ -1417,6 +1437,24 @@ class ResultsScreen(QWidget):
         def _on_done(ok, fail):
             prog.setValue(len(selected))
             prog.close()
+            _log.info(
+                "extraction_finished destination=%s ok=%d fail=%d",
+                dest, ok, fail,
+            )
+            # Warn about truncated files before the summary dialog
+            truncated_names = [
+                f.get("name", "?")
+                for f in selected
+                if f.get("truncated")
+            ]
+            if truncated_names:
+                names_txt = "\n".join(f"  • {n}" for n in truncated_names)
+                QMessageBox.warning(
+                    self,
+                    "Fichiers tronqués à 500 Mo",
+                    "Les fichiers suivants dépassaient 500 Mo et ont été "
+                    "tronqués lors de l'extraction :\n\n" + names_txt,
+                )
             msg = QMessageBox(self)
             msg.setWindowTitle("Récupération terminée")
             if fail == 0:
@@ -1429,12 +1467,6 @@ class ResultsScreen(QWidget):
                     f"<span style='color:#F59E0B'>{fail} échec(s)</span>."
                 )
             msg.setInformativeText(f"Dossier de destination :\n{dest}")
-            _log.info(
-                "extraction_finished destination=%s ok=%d fail=%d",
-                dest,
-                ok,
-                fail,
-            )
             open_btn = msg.addButton("📂  Ouvrir le dossier", QMessageBox.ButtonRole.ActionRole)
             msg.addButton("Fermer", QMessageBox.ButtonRole.RejectRole)
             msg.exec()

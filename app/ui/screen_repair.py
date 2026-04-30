@@ -216,13 +216,39 @@ class RepairScreen(QWidget):
         self._chkdsk_btn.clicked.connect(self._run_chkdsk)
         tools_grid.addWidget(self._chkdsk_btn)
 
-        self._sfc_btn = self._tool_btn("🛡", "SFC /scannow", "Réparation des fichiers système Windows.")
+        # SFC — avec sélecteur de mode
+        sfc_col = QVBoxLayout()
+        sfc_col.setSpacing(6)
+        self._sfc_btn = self._tool_btn("🛡", "SFC", "Vérification ou réparation des fichiers système.")
         self._sfc_btn.clicked.connect(self._run_sfc)
-        tools_grid.addWidget(self._sfc_btn)
+        self._sfc_combo = QComboBox()
+        self._sfc_combo.addItem("Réparer (/scannow)",        "scannow")
+        self._sfc_combo.addItem("Vérifier seul (/verifyonly)", "verifyonly")
+        self._sfc_combo.setFixedWidth(220)
+        self._sfc_combo.setToolTip(
+            "/scannow : répare les fichiers corrompus\n"
+            "/verifyonly : vérifie sans modifier"
+        )
+        sfc_col.addWidget(self._sfc_btn)
+        sfc_col.addWidget(self._sfc_combo)
+        tools_grid.addLayout(sfc_col)
 
-        self._dism_btn = self._tool_btn("🔧", "DISM /CheckHealth", "Vérification de l'image Windows.")
+        # DISM — avec sélecteur CheckHealth / RestoreHealth
+        dism_col = QVBoxLayout()
+        dism_col.setSpacing(6)
+        self._dism_btn = self._tool_btn("🔧", "DISM", "Contrôle ou réparation de l'image Windows.")
         self._dism_btn.clicked.connect(self._run_dism)
-        tools_grid.addWidget(self._dism_btn)
+        self._dism_combo = QComboBox()
+        self._dism_combo.addItem("Vérification (/CheckHealth)",   "CheckHealth")
+        self._dism_combo.addItem("Réparation (/RestoreHealth)",   "RestoreHealth")
+        self._dism_combo.setFixedWidth(220)
+        self._dism_combo.setToolTip(
+            "/CheckHealth : vérification rapide, hors ligne\n"
+            "/RestoreHealth : répare via Windows Update (connexion internet requise)"
+        )
+        dism_col.addWidget(self._dism_btn)
+        dism_col.addWidget(self._dism_combo)
+        tools_grid.addLayout(dism_col)
 
         tools_grid.addStretch()
         lay.addLayout(tools_grid)
@@ -336,10 +362,25 @@ class RepairScreen(QWidget):
         self._run_cmd(["chkdsk", drive, "/scan"])
 
     def _run_sfc(self):
-        self._run_cmd(["sfc", "/scannow"])
+        mode = self._sfc_combo.currentData() or "scannow"
+        self._run_cmd(["sfc", f"/{mode}"])
 
     def _run_dism(self):
-        self._run_cmd(["dism", "/Online", "/Cleanup-Image", "/CheckHealth"])
+        op = self._dism_combo.currentData() or "CheckHealth"
+        if op == "RestoreHealth":
+            from PyQt6.QtWidgets import QMessageBox as _QMB
+            reply = _QMB.warning(
+                self,
+                "DISM RestoreHealth",
+                "Cette opération peut prendre plusieurs minutes\n"
+                "et nécessite une connexion internet active.\n\n"
+                "Continuer ?",
+                _QMB.StandardButton.Yes | _QMB.StandardButton.No,
+                _QMB.StandardButton.No,
+            )
+            if reply != _QMB.StandardButton.Yes:
+                return
+        self._run_cmd(["dism", "/Online", "/Cleanup-Image", f"/{op}"])
 
     def _run_cmd(self, cmd: list[str]):
         if self._worker and self._worker.isRunning():
