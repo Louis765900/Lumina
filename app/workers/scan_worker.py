@@ -472,19 +472,27 @@ class ScanWorker(QThread):
                         if not self._stop_requested:
                             self.progress.emit(progress_map(pct))
 
+                    _fs_pending: list[dict] = []
+                    _FS_BATCH = 100
+
                     def _fs_file(info: dict) -> None:
                         self._pause_event.wait()
                         for start, length in info.get("data_runs", ()):
                             dedup_index.add(start, length)
                         with self._lock:
                             self._found_files.append(info)
-                        self.files_batch_found.emit([info])
+                        _fs_pending.append(info)
+                        if len(_fs_pending) >= _FS_BATCH:
+                            self.files_batch_found.emit(list(_fs_pending))
+                            _fs_pending.clear()
 
                     count = parser.enumerate_files(
                         stop_flag=lambda: self._stop_requested,
                         progress_cb=_fs_progress,
                         file_found_cb=_fs_file,
                     )
+                    if _fs_pending:
+                        self.files_batch_found.emit(list(_fs_pending))
                     self.status_text.emit(
                         f"{fs_name} : {count} fichier(s) récupéré(s) avec leur nom d'origine."
                     )

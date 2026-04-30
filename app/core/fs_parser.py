@@ -308,12 +308,13 @@ class NTFSParser(BaseFSParser):
 
         # ── Pass 1 ────────────────────────────────────────────────────
         dir_cache: dict[int, tuple[str, int]] = {5: ("", 5)}   # root → itself
-        deleted:   list[_MFTEntry] = []
+        active:    list[_MFTEntry] = []   # files still present on disk
+        deleted:   list[_MFTEntry] = []   # files no longer in use
 
         for batch_start in range(0, total, _BATCH):
             if stop_flag():
                 _log.info("[NTFSParser] Scan cancelled during Pass 1.")
-                return len(deleted)
+                return len(active) + len(deleted)
 
             count = min(_BATCH, total - batch_start)
             offset = boot.mft_start_byte + batch_start * _MFT_ENTRY_SIZE
@@ -330,22 +331,27 @@ class NTFSParser(BaseFSParser):
                 entry = self._parse_entry(batch_start + i, chunk)
                 if entry is None:
                     continue
-                if not entry.is_deleted and (entry.flags & _FLAG_DIR):
-                    dir_cache[entry.index] = (entry.name, entry.parent_index)
-                elif entry.is_deleted and entry.index > _IDX_MAX_SYSTEM:
+                is_dir = bool(entry.flags & _FLAG_DIR)
+                if not entry.is_deleted:
+                    if is_dir:
+                        dir_cache[entry.index] = (entry.name, entry.parent_index)
+                    elif entry.index > _IDX_MAX_SYSTEM:
+                        active.append(entry)
+                elif entry.index > _IDX_MAX_SYSTEM and not is_dir:
                     deleted.append(entry)
 
             pct = min(50, int((batch_start + count) * 50 / max(total, 1)))
             progress_cb(pct)
 
         _log.info(
-            "[NTFSParser] Pass 1 done: %d dirs cached, %d deleted files found.",
-            len(dir_cache), len(deleted),
+            "[NTFSParser] Pass 1 done: %d dirs, %d active files, %d deleted files.",
+            len(dir_cache), len(active), len(deleted),
         )
 
-        # ── Pass 2 ────────────────────────────────────────────────────
+        # ── Pass 2 — emit active files first (integrity 95), then deleted (80) ──
         found = 0
-        for j, entry in enumerate(deleted):
+        all_entries = [(e, 95) for e in active] + [(e, 80) for e in deleted]
+        for j, (entry, integrity) in enumerate(all_entries):
             if stop_flag():
                 _log.info("[NTFSParser] Scan cancelled during Pass 2.")
                 break
@@ -362,19 +368,23 @@ class NTFSParser(BaseFSParser):
                 "offset":    offset,
                 "size_kb":   max(1, entry.size_bytes // 1024) if entry.size_bytes else 1,
                 "device":    self._device,
-                "integrity": 85,    # Known name + position → high confidence
+                "integrity": integrity,
                 "mft_path":  path,
                 "source":    "mft",
                 "fs":        self.name,
-                "data_runs": byte_runs,   # list[(byte_offset, byte_length)] — empty for resident files
+                "data_runs": byte_runs,
+                "deleted":   entry.is_deleted,
             })
             found += 1
 
             if j % 100 == 0:
-                progress_cb(50 + min(49, int(j * 49 / max(len(deleted), 1))))
+                progress_cb(50 + min(49, int(j * 49 / max(len(all_entries), 1))))
 
         progress_cb(100)
-        _log.info("[NTFSParser] MFT scan complete: %d deleted files recovered.", found)
+        _log.info(
+            "[NTFSParser] MFT scan complete: %d active + %d deleted = %d files.",
+            len(active), len(deleted), found,
+        )
         return found
 
     # ── Partition detection ────────────────────────────────────────────────────

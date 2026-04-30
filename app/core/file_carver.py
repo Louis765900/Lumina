@@ -166,9 +166,11 @@ SIGNATURES: dict[str, list[tuple[bytes, bytes | None]]] = {
         # Shares header with WMV — discriminated by content
         (b"\x30\x26\xb2\x75\x8e\x66\xcf\x11\xa6\xd9", None),
     ],
+    # .aiff is detected via RIFF-style FORM container discriminated at offset+8.
+    # The 4-byte size field is never zero in real files, so we match on FORM
+    # prefix only and discriminate the sub-type (AIFF/AIFC) in _form_ext().
     ".aiff": [
-        (b"FORM\x00\x00\x00\x00AIFF", None),
-        (b"FORM\x00\x00\x00\x00AIFC", None),
+        (b"FORM", None),   # discriminated by _form_ext() at offset+8
     ],
     ".opus": [
         (b"OggS\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00", None),  # Ogg Opus
@@ -248,14 +250,11 @@ SIGNATURES: dict[str, list[tuple[bytes, bytes | None]]] = {
         (b"Return-Path:", None),
     ],
 
-    # ── Additonal RAW / Photo ─────────────────────────────────────────
-    ".dng": [
-        # Adobe DNG — TIFF container with DNG-specific byte sequence
-        # The 4-byte version tag (DNGVersion, tag 0xC612) is usually in the
-        # first IFD. We match a byte that appears after the TIFF header when
-        # DNG sub-IFD chains are present. Kept broad to not miss variants.
-        (b"II*\x00\x08\x00\x00\x00", None),   # LE TIFF + IFD offset = 8
-    ],
+    # ── Additional RAW / Photo ────────────────────────────────────────
+    # .dng intentionally omitted: it shares the exact TIFF header (II*\x00 or
+    # MM\x00*) and cannot be distinguished in the first 4 bytes without reading
+    # IFD tags. Real DNG files are covered by the .tiff entry above; the
+    # extension may be refined by a future DNG plugin that reads tag 0xC612.
     ".ai": [
         (b"%PDF-", b"%%EOF"),      # Adobe Illustrator (PDF container)
     ],
@@ -310,7 +309,7 @@ SIGNATURES: dict[str, list[tuple[bytes, bytes | None]]] = {
 
 # ── RIFF sub-type discrimination ──────────────────────────────────────────────
 def _riff_ext(data: bytes, idx: int) -> str:
-    """Return .avi, .wav, or .webp based on RIFF sub-type at idx."""
+    """Return specific extension based on RIFF sub-type at idx."""
     try:
         sub = data[idx + 8: idx + 12]
         if sub == b"WEBP":
@@ -319,9 +318,28 @@ def _riff_ext(data: bytes, idx: int) -> str:
             return ".wav"
         if sub == b"AVI ":
             return ".avi"
+        if sub == b"RMID":
+            return ".mid"
+        if sub[:3] == b"CDX":
+            return ".cda"
     except IndexError:
         pass
-    return ".avi"   # default RIFF fallback
+    return ".bin"   # unknown RIFF sub-type — don't pretend it's AVI
+
+
+# ── FORM/IFF sub-type discrimination (AIFF, AIFC, others) ────────────────────
+def _form_ext(data: bytes, idx: int) -> str:
+    """Return .aiff, .aifc, or .avi (RIFF fallback) from FORM/RIFF sub-type."""
+    try:
+        sub = data[idx + 8: idx + 12]
+        if sub == b"AIFF":
+            return ".aiff"
+        if sub == b"AIFC":
+            return ".aiff"
+        # Could be a RIFF container mislabelled as FORM — delegate
+        return _riff_ext(data, idx)
+    except IndexError:
+        return ".bin"
 
 
 # ── OLE2 sub-type discrimination ─────────────────────────────────────────────
@@ -495,18 +513,17 @@ class FileCarver:
         else:
             # ── Legacy format validation before size estimation ────────────
             if header == b"MZ":
-                # Require a valid PE header: bytes 0x3C-0x3F hold the PE offset.
+                # Validate PE header when it's reachable within the data window.
+                # If the window is too small (fragmented file), keep the candidate
+                # at reduced integrity rather than discarding a real executable.
                 pe_off_pos = idx + 0x3C
-                if pe_off_pos + 4 > len(data):
-                    return None, "reject"
-                pe_off = int.from_bytes(data[pe_off_pos:pe_off_pos + 4], "little")
-                pe_sig_pos = idx + pe_off
-                if (
-                    pe_off < 4
-                    or pe_sig_pos + 4 > len(data)
-                    or data[pe_sig_pos:pe_sig_pos + 4] != b"PE\x00\x00"
-                ):
-                    return None, "reject"
+                if pe_off_pos + 4 <= len(data):
+                    pe_off = int.from_bytes(data[pe_off_pos:pe_off_pos + 4], "little")
+                    pe_sig_pos = idx + pe_off
+                    if pe_off >= 4 and pe_sig_pos + 4 <= len(data):
+                        if data[pe_sig_pos:pe_sig_pos + 4] != b"PE\x00\x00":
+                            return None, "reject"
+                    # pe_off out of window → accept with integrity 60 (set below)
 
             elif header == b"BM":
                 # BMP reserved bytes 6-9 must be zero; pixel-data offset must be sane.
@@ -518,8 +535,8 @@ class FileCarver:
                 if pix_off < 26 or pix_off > 16384:
                     return None, "reject"
 
-            if header == b"RIFF":
-                ext = _riff_ext(data, idx)
+            if header == b"RIFF" or header == b"FORM":
+                ext = _form_ext(data, idx) if header == b"FORM" else _riff_ext(data, idx)
             elif ext == ".doc" and header == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
                 ext = _ole2_ext(data, idx)
             elif header.startswith(b"\x30\x26\xb2\x75"):
