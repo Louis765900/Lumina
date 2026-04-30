@@ -575,15 +575,19 @@ class ScanScreen(QWidget):
             self._pause_btn.setEnabled(False)
             return
 
-        # Checkpoint resume: propose reloading an interrupted deep scan if the
-        # checkpoint is from the same device and the mode is deep.
+        # Checkpoint resume: propose reloading an interrupted deep scan.
+        preloaded: list[dict] = []
         if mode == "deep":
-            self._maybe_resume_checkpoint(disk)
+            preloaded = self._maybe_resume_checkpoint(disk)
 
         # Development-only demo path. Quick scan is metadata-only and must not
         # route to the legacy simulation engine.
         simulate = mode == "demo" and is_demo_enabled()
-        self._worker = ScanWorker(disk, simulate=simulate)
+        self._worker = ScanWorker(
+            disk,
+            simulate=simulate,
+            preloaded_files=preloaded if preloaded else None,
+        )
         self._worker.progress.connect(self._on_progress)
         self._worker.status_text.connect(self._on_status)
         self._worker.files_batch_found.connect(self._on_batch)
@@ -594,27 +598,36 @@ class ScanScreen(QWidget):
 
     # ── Checkpoint resume ─────────────────────────────────────────────────────
 
-    def _maybe_resume_checkpoint(self, disk: dict) -> None:
-        """Detect a previous checkpoint for this device and offer to reload it."""
+    def _maybe_resume_checkpoint(self, disk: dict) -> list[dict]:
+        """Detect a previous checkpoint for this device and offer to reload it.
+
+        Returns the list of preloaded files if the user accepts, or [] otherwise.
+        """
         checkpoint_path = Path("logs") / "scan_checkpoint.json"
         if not checkpoint_path.exists():
-            return
+            return []
         try:
-            data = json.loads(checkpoint_path.read_text(encoding="utf-8"))
-            if data.get("device") != disk.get("device"):
-                return
-            file_count = len(data.get("files", []))
-            if file_count == 0:
-                return
+            raw = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+            # Checkpoint is a flat list of file dicts written by _save_checkpoint.
+            if isinstance(raw, list):
+                files = raw
+            else:
+                files = raw.get("files", [])
+            if not files:
+                return []
+            # Only resume if the first file matches the current device.
+            if files[0].get("device", "") != disk.get("device", ""):
+                return []
+            file_count = len(files)
         except Exception:
-            return
+            return []
 
         dlg = QMessageBox(self)
         dlg.setWindowTitle("Scan interrompu détecté")
         dlg.setText(
             f"Un scan précédent sur {disk.get('device', '?')} a été interrompu.\n"
             f"{file_count} fichier(s) avaient déjà été trouvés.\n\n"
-            "Voulez-vous charger ces résultats partiels ?"
+            "Reprendre à partir de ces résultats partiels ?"
         )
         dlg.setStandardButtons(
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
@@ -628,20 +641,19 @@ class ScanScreen(QWidget):
             "padding: 6px 18px; }"
             f"QPushButton:hover {{ background: rgba(0,122,255,0.25); }}"
         )
-        result = dlg.exec()
-        if result == QMessageBox.StandardButton.Yes:
-            files = data.get("files", [])
-            self._found_count = len(files)
-            plural = "s" if self._found_count > 1 else ""
-            self._counter_lbl.setText(
-                f"✓  {self._found_count} fichier{plural} détecté{plural} (reprise)"
-            )
-            # Emit the checkpointed batch so the results screen can show them
-            # if the new scan also finishes (worker will merge via _found_files).
-            _log.info(
-                "Checkpoint resume: %d files pre-loaded from %s",
-                self._found_count, checkpoint_path,
-            )
+        if dlg.exec() != QMessageBox.StandardButton.Yes:
+            return []
+
+        self._found_count = file_count
+        plural = "s" if file_count > 1 else ""
+        self._counter_lbl.setText(
+            f"✓  {file_count} fichier{plural} pré-chargé{plural} (reprise)"
+        )
+        _log.info(
+            "Checkpoint resume: %d files pre-loaded from %s",
+            file_count, checkpoint_path,
+        )
+        return files
 
     # ── Slots du worker ───────────────────────────────────────────────────────
 

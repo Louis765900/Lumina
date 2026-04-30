@@ -121,7 +121,7 @@ _TYPE_GROUPS: dict[str, set[str]] = {
 _SYSTEM_TYPES: frozenset[str] = frozenset({
     "EXE", "DLL", "SYS", "MSI", "MSP", "MSU",
     "OCX", "COM", "SCR", "CPL", "PIF",
-    "CAB", "INF", "CAT", "INI",
+    "INF", "CAT", "INI",
     "DAT", "LOG", "TMP", "LNK", "PDB",
 })
 
@@ -1056,7 +1056,7 @@ class ResultsScreen(QWidget):
                 counts["Autres"] = counts.get("Autres", 0) + 1
         for lbl, btn in self._filter_btns.items():
             c = counts.get(lbl, 0)
-            btn.setText(f"{lbl}  {c}" if c > 0 else lbl)
+            btn.setText(f"{lbl} ({c})" if c > 0 else lbl)
 
     def _update_filter_styles(self):
         for label, btn in self._filter_btns.items():

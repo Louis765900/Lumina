@@ -133,7 +133,13 @@ class ScanWorker(QThread):
         from app.workers._demo import PHASES
         return PHASES
 
-    def __init__(self, disk: dict, simulate: bool = False, parent=None):
+    def __init__(
+        self,
+        disk: dict,
+        simulate: bool = False,
+        preloaded_files: list[dict] | None = None,
+        parent=None,
+    ):
         super().__init__(parent)
         if simulate and not is_demo_enabled():
             raise ValueError(t("scan.demo_disabled"))
@@ -141,8 +147,8 @@ class ScanWorker(QThread):
         self._simulate        = simulate
         self._stop_requested  = False
         self._pause_event     = threading.Event()
-        self._pause_event.set()          # non mis en pause par défaut
-        self._found_files: list[dict] = []
+        self._pause_event.set()
+        self._found_files: list[dict] = list(preloaded_files) if preloaded_files else []
         self._lock = threading.Lock()
 
     # ── Contrôle public ───────────────────────────────────────────────────────
@@ -163,11 +169,12 @@ class ScanWorker(QThread):
     # ── Entrée du thread ──────────────────────────────────────────────────────
 
     def run(self):
-        self._found_files    = []
+        # _found_files may already contain preloaded checkpoint data — don't reset.
         self._stop_requested = False
         self._pause_event.set()
         try:
             if self._simulate:
+                self._found_files = []
                 self._run_simulation()
             else:
                 self._clear_checkpoint()
@@ -599,8 +606,11 @@ class ScanWorker(QThread):
                 len(dedup_index), fs_name,
             )
 
-        pct_base  = 20 if fs_ok else 0
-        pct_scale = 80 if fs_ok else 100
+        # Phase 1 always occupies 0-20% of the visual bar, whether it succeeded
+        # or not. If we reset pct_base to 0 when fs_ok=False the bar visibly
+        # jumps backward; keeping it at 20 gives a monotonically increasing bar.
+        pct_base  = 20
+        pct_scale = 80
 
         from app.core.file_carver import FileCarver
 
