@@ -65,3 +65,20 @@ logs/lumina.log
 ```
 
 Logs rotate automatically when they exceed 5 MB.
+
+## Limitations connues v1.0.0
+
+- **Quick Scan NTFS uniquement** : la lecture MFT ne fonctionne que sur les volumes NTFS. Les systèmes FAT32, exFAT, ext4 et APFS ne sont pas pris en charge ; Lumina propose alors de lancer un Deep Scan.
+- **Scanner Rust limité aux images disque locales** : le helper natif ne couvre pas encore les lecteurs physiques (`\\.\PhysicalDrive`), les volumes logiques bruts, ni les clichés VSS. Ces sources passent systématiquement par le moteur Python.
+- **SSD + TRIM** : sur un SSD avec TRIM actif, les secteurs marqués libres peuvent être effacés par le contrôleur avant toute tentative de récupération. Les chances de succès dépendent du firmware et du délai écoulé depuis la suppression.
+- **Extraction plafonnée à 500 Mo par fichier** : tout fichier dépassant 500 Mo est extrait partiellement. Lumina signale la troncature dans l'interface, dans le log et dans l'export DFXML (`<lumina:truncated>true</lumina:truncated>`).
+- **Windows uniquement** : Lumina requiert des droits Administrateur pour ouvrir les périphériques bruts. L'accès raw-disk, le re-lancement UAC, et les commandes de réparation (CHKDSK, SFC, DISM) sont exclusivement Windows.
+
+## Roadmap
+
+Items prévus pour les versions post-v1.0.0 (ordre indicatif) :
+
+- **Parseur ext4 / APFS** : ajouter `Ext4Parser` et `ApfsParser` dans le registre `FS_PARSERS` pour proposer un Quick Scan sur Linux et macOS.
+- **Scanner Rust sur PhysicalDrive et volumes bruts** : lever la restriction image-only de la Phase 4 en gérant les chemins `\\.\PhysicalDrive*` et `\\.\C:` côté Rust.
+- **SIMD / memchr** : remplacer le hot-path Aho-Corasick par une recherche premier-octet vectorisée pour viser > 500 MB/s en Deep Scan.
+- **Releases GitHub automatisées** : pipeline CI/CD PyInstaller → `dist/Lumina.exe` publié directement sur la page Releases du dépôt.

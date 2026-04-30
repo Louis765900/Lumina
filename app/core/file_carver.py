@@ -14,7 +14,6 @@ full logging to logs/lumina.log.
 
 from __future__ import annotations
 
-import atexit
 import importlib
 import logging
 import os
@@ -22,36 +21,12 @@ import pkgutil
 import re
 import threading
 
+from app.core.recovery import ensure_lumina_log
 from app.plugins.carvers.base_plugin import BaseCarverPlugin
 
 # ── Logger setup ──────────────────────────────────────────────────────────────
-_LOG_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "logs",
-)
-os.makedirs(_LOG_DIR, exist_ok=True)
-
+ensure_lumina_log()
 _log = logging.getLogger("lumina.carver")
-_fh: logging.FileHandler | None = None
-if not _log.handlers:
-    _fh = logging.FileHandler(
-        os.path.join(_LOG_DIR, "lumina.log"), encoding="utf-8"
-    )
-    _fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
-    _log.addHandler(_fh)
-    _log.setLevel(logging.INFO)
-
-def _cleanup_log():
-    global _fh
-    if _fh is not None:
-        try:
-            _fh.flush()
-            _fh.close()
-        except Exception:
-            pass
-        _fh = None
-
-atexit.register(_cleanup_log)
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 SKIP_ON_ERR  = 1024 * 1024   # Jump 1 MB ahead on any read error (protects dying disk)
@@ -481,7 +456,7 @@ class FileCarver:
                 if dedup_check(abs_offset, max(size_kb, 1) * 1024):
                     return None, "dedup"
             except Exception as exc:
-                _log.debug("dedup_check raised: %s â€” treating as non-dup.", exc)
+                _log.debug("dedup_check raised: %s — treating as non-dup.", exc)
 
         counter[ext] = counter.get(ext, 0) + 1
         return {
@@ -521,7 +496,7 @@ class FileCarver:
 
         # ── Open device — close FD no matter what ─────────────────────
         try:
-            fd = os.open(device, os.O_RDONLY | os.O_BINARY)
+            fd = os.open(device, os.O_RDONLY | getattr(os, "O_BINARY", 0))
         except OSError as e:
             _log.error("Cannot open %s: %s", device, e)
             raise PermissionError(
@@ -533,7 +508,7 @@ class FileCarver:
         reject_count  = 0
 
         try:
-            total_bytes = max_bytes or self._get_device_size(fd)
+            total_bytes = max_bytes or self._get_device_size(device)
             block_size  = _optimal_block_size(total_bytes)
             bytes_read  = 0
             overlap     = b""
@@ -607,73 +582,6 @@ class FileCarver:
                     )
                     if file_found_cb:
                         file_found_cb(file_info)
-                    continue
-
-                    # ── Plugin path: refine + validate + estimate ──────
-                    if plugin is not None:
-                        ext = plugin.refine_extension(data, idx)
-                        candidate = data[idx : idx + _MIME_WINDOW]
-
-                        if (
-                            len(candidate) >= plugin.min_size
-                            and not plugin.validate_mime(candidate)
-                        ):
-                            reject_count += 1
-                            _log.debug(
-                                "Rejected %s @ %d (MIME validation failed)",
-                                ext, offset_base + idx,
-                            )
-                            continue
-
-                        size_kb, integrity = plugin.estimate_size(data, idx, footer)
-
-                    # ── Legacy path: shared-magic discriminators ───────
-                    else:
-                        if header == b"RIFF":
-                            ext = _riff_ext(data, idx)
-                        elif ext == ".doc" and header == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
-                            ext = _ole2_ext(data, idx)
-                        elif header.startswith(b"\x30\x26\xb2\x75"):
-                            chunk = data[idx: idx + 48]
-                            ext = ".wma" if b"\xf8\x03\x36\x4c\x65\x18\xcf\x11" in chunk else ".wmv"
-
-                        size_kb, integrity = self._estimate_size(data, idx, footer, ext)
-
-                    # ftyp-based formats (MP4/MOV/HEIC/M4A…): the brand ("ftypisom" etc.)
-                    # sits at byte offset +4 from the real file start (after the 4-byte box size).
-                    # Only apply the -4 correction when the header itself starts with "ftyp"
-                    # (not when we matched "\x00\x00\x00\x18ftyp..." which already includes the size).
-                    _ftyp_offset = 4 if header[:4] == b"ftyp" and idx >= 4 else 0
-
-                    abs_offset = offset_base + idx - _ftyp_offset
-
-                    # Silent dedup against filesystem-level entries already emitted upstream.
-                    if dedup_check is not None:
-                        try:
-                            if dedup_check(abs_offset, max(size_kb, 1) * 1024):
-                                dedup_count += 1
-                                continue
-                        except Exception as exc:
-                            _log.debug("dedup_check raised: %s — treating as non-dup.", exc)
-
-                    counter[ext] = counter.get(ext, 0) + 1
-
-                    file_info = {
-                        "name":      f"recovered_{ext.lstrip('.')}_{counter[ext]:04d}{ext}",
-                        "type":      ext.upper().lstrip("."),
-                        "offset":    abs_offset,
-                        "size_kb":   size_kb,
-                        "device":    device,
-                        "integrity": integrity,  # 0–100 score
-                        "source":    "carver",
-                    }
-                    found.append(file_info)
-                    _log.info(
-                        "Found: %s @ offset %d (%d KB, integrity %d%%)",
-                        file_info["name"], abs_offset, size_kb, integrity,
-                    )
-                    if file_found_cb:
-                        file_found_cb(file_info)
 
                 # NOW increment bytes_read
                 bytes_read += len(block)
@@ -699,14 +607,21 @@ class FileCarver:
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
-    def _get_device_size(self, fd: int) -> int:
-        """Get device size via lseek with a 5-second timeout."""
+    def _get_device_size(self, device: str) -> int:
+        """Get device size via a dedicated FD with a 5-second timeout.
+
+        Opens its own file descriptor so that a timeout cannot leave an orphan
+        thread racing against the main scan FD.
+        """
         result = [0]
 
         def _seek():
             try:
-                result[0] = os.lseek(fd, 0, os.SEEK_END)
-                os.lseek(fd, 0, os.SEEK_SET)
+                tmp_fd = os.open(device, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+                try:
+                    result[0] = os.lseek(tmp_fd, 0, os.SEEK_END)
+                finally:
+                    os.close(tmp_fd)
             except OSError:
                 result[0] = 0
 
@@ -767,7 +682,7 @@ class FileCarver:
 
         # Try to find the next known header to bound the size
         try:
-            next_m = self._pattern.search(data, start + len(ext) + 1)
+            next_m = self._pattern.search(data, start + 512)
             if next_m:
                 bounded = (next_m.start() - start) // 1024
                 if 1 <= bounded < size_kb:
@@ -776,3 +691,19 @@ class FileCarver:
             pass
 
         return size_kb, 60  # Header found only: partial confidence
+
+
+# ── Singleton accessor ────────────────────────────────────────────────────────
+
+_carver_instance: FileCarver | None = None
+_carver_lock = threading.Lock()
+
+
+def get_carver() -> FileCarver:
+    """Return the process-wide FileCarver instance (plugins loaded once)."""
+    global _carver_instance
+    if _carver_instance is None:
+        with _carver_lock:
+            if _carver_instance is None:
+                _carver_instance = FileCarver()
+    return _carver_instance

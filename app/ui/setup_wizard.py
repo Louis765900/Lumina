@@ -22,15 +22,18 @@ from PyQt6.QtWidgets import (
 )
 
 from app.core.settings import load_settings, save_settings, validate_settings
+from app.ui.palette import (
+    ACCENT as _ACCENT,
+    BG2 as _BG,
+    MUTED as _MUTED,
+    SUB as _SUB,
+    TEXT as _TEXT,
+)
 
-_BG = "#0F1120"
-_CARD = "#1A1B2E"
+# Wizard-specific overrides: solid/opaque values for a modal dialog context
+_CARD   = "#1A1B2E"
 _BORDER = "rgba(255,255,255,0.10)"
-_TEXT = "#FFFFFF"
-_SUB = "#94A3B8"
-_MUTED = "#64748B"
-_ACCENT = "#007AFF"
-_HOVER = "rgba(255,255,255,0.06)"
+_HOVER  = "rgba(255,255,255,0.06)"
 
 
 def needs_setup(settings: Mapping[str, Any]) -> bool:
@@ -72,7 +75,7 @@ class SetupWizard(QDialog):
         title = QLabel("Bienvenue dans Lumina")
         title.setStyleSheet(f"color: {_TEXT}; font-size: 22px; font-weight: 800;")
         subtitle = QLabel(
-            "Configurez les options essentielles avant votre premiere recuperation."
+            "Configurez les options essentielles avant votre première récupération."
         )
         subtitle.setWordWrap(True)
         subtitle.setStyleSheet(f"color: {_SUB}; font-size: 12px;")
@@ -81,12 +84,12 @@ class SetupWizard(QDialog):
 
         layout.addWidget(self._field_label("Langue"))
         self.language_combo = QComboBox()
-        self.language_combo.addItem("Francais", "fr")
+        self.language_combo.addItem("Français", "fr")
         self.language_combo.addItem("English", "en")
         self._set_combo_value(self.language_combo, self._initial["language"])
         layout.addWidget(self.language_combo)
 
-        layout.addWidget(self._field_label("Dossier de recuperation par defaut"))
+        layout.addWidget(self._field_label("Dossier de récupération par défaut"))
         dir_row = QHBoxLayout()
         dir_row.setSpacing(8)
         self.recovery_dir_edit = QLineEdit(str(self._initial["default_recovery_dir"]))
@@ -108,16 +111,16 @@ class SetupWizard(QDialog):
         layout.addWidget(self.engine_combo)
 
         self.prefer_image_check = QCheckBox(
-            "Toujours privilegier une image disque avant un scan profond"
+            "Toujours privilégier une image disque avant un scan profond"
         )
         self.prefer_image_check.setChecked(bool(self._initial["prefer_image_first"]))
         layout.addWidget(self.prefer_image_check)
 
         disclaimer = QLabel(
-            "Avertissement recuperation\n"
-            "- Ne recuperez jamais vers le disque source.\n"
-            "- La recuperation n'est jamais garantie.\n"
-            "- Si les donnees sont importantes, creez d'abord une image disque."
+            "Avertissement récupération\n"
+            "- Ne récupérez jamais vers le disque source.\n"
+            "- La récupération n'est jamais garantie.\n"
+            "- Si les données sont importantes, créez d'abord une image disque."
         )
         disclaimer.setWordWrap(True)
         disclaimer.setStyleSheet(
@@ -181,7 +184,7 @@ class SetupWizard(QDialog):
     def _browse_recovery_dir(self) -> None:
         selected = QFileDialog.getExistingDirectory(
             self,
-            "Choisir le dossier de recuperation",
+            "Choisir le dossier de récupération",
             self.recovery_dir_edit.text() or str(Path.home()),
         )
         if selected:
@@ -195,7 +198,7 @@ class SetupWizard(QDialog):
             QMessageBox.warning(
                 self,
                 "Avertissement requis",
-                "Vous devez accepter l'avertissement de recuperation pour continuer.",
+                "Vous devez accepter l'avertissement de récupération pour continuer.",
             )
             return
         super().accept()
@@ -230,8 +233,7 @@ def ensure_setup_complete(
     factory = dialog_factory or SetupWizard
     dialog = factory(current, parent)
     result = dialog.exec()
-    accepted = QDialog.DialogCode.Accepted
-    if result != accepted and result != accepted.value:
+    if result != QDialog.DialogCode.Accepted.value:
         return False
 
     save_settings(dialog.settings(), settings_file)

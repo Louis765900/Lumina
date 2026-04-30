@@ -7,53 +7,62 @@ import pytest
 
 @pytest.fixture
 def sample_disk() -> dict:
-    """A sample disk dictionary as returned by DiskDetector."""
+    """A typical internal disk as returned by DiskDetector.list_disks()."""
     return {
-        "device": r"\\.\PhysicalDrive0",
-        "name": "Samsung SSD 970 EVO",
+        "device": "C:",
+        "name": "Disque Local (C:)",
         "size_gb": 465.8,
+        "used_gb": 210.5,
         "size_bytes": 500_107_862_016,
-        "model": "Samsung SSD 970 EVO 500GB",
-        "interface": "SCSI",
+        "model": "Volume NTFS",
+        "interface": "SATA/NVMe",
     }
 
 
 @pytest.fixture
 def sample_usb_disk() -> dict:
-    """A sample USB disk dictionary."""
+    """A removable USB disk as returned by DiskDetector.list_disks()."""
     return {
-        "device": r"\\.\PhysicalDrive1",
-        "name": "Kingston DataTraveler",
+        "device": "D:",
+        "name": "Disque Local (D:)",
         "size_gb": 14.5,
+        "used_gb": 3.2,
         "size_bytes": 15_518_924_800,
-        "model": "Kingston DataTraveler 3.0 USB Device",
+        "model": "Volume FAT32",
         "interface": "USB",
+        "removable": True,
     }
 
 
 @pytest.fixture
 def sample_found_files() -> list[dict]:
-    """Sample list of recovered file dicts."""
+    """Sample list of recovered file dicts matching the file_info schema."""
     return [
         {
             "name": "recovered_jpg_0001.jpg",
             "type": "JPG",
             "offset": 1_048_576,
             "size_kb": 2048,
-            "device": r"\\.\PhysicalDrive0",
+            "device": "C:",
+            "integrity": 95,
+            "source": "carver",
         },
         {
             "name": "recovered_png_0001.png",
             "type": "PNG",
             "offset": 5_242_880,
             "size_kb": 768,
-            "device": r"\\.\PhysicalDrive0",
+            "device": "C:",
+            "integrity": 100,
+            "source": "carver",
         },
         {
             "name": "recovered_pdf_0001.pdf",
             "type": "PDF",
             "offset": 10_485_760,
             "size_kb": 512,
-            "device": r"\\.\PhysicalDrive0",
+            "device": "C:",
+            "integrity": 75,
+            "source": "mft",
         },
     ]

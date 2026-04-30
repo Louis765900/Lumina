@@ -8,21 +8,22 @@ import psutil
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QCursor
 from PyQt6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QMessageBox, QPushButton,
+    QDialog, QFrame, QHBoxLayout, QLabel, QMessageBox, QPushButton,
     QScrollArea, QVBoxLayout, QWidget,
 )
 
-# ── Palette ──────────────────────────────────────────────────────────────────
-_CARD   = "rgba(255,255,255,0.04)"
-_BORDER = "rgba(255,255,255,0.08)"
-_TEXT   = "#FFFFFF"
-_SUB    = "#94A3B8"
-_MUTED  = "#64748B"
-_ACCENT = "#007AFF"
-_OK     = "#34C759"
-_WARN   = "#F59E0B"
-_ERR    = "#EF4444"
-_HOVER  = "rgba(255,255,255,0.05)"
+from app.ui.palette import (
+    ACCENT as _ACCENT,
+    BORDER as _BORDER,
+    CARD as _CARD,
+    ERR as _ERR,
+    HOVER as _HOVER,
+    MUTED as _MUTED,
+    OK as _OK,
+    SUB as _SUB,
+    TEXT as _TEXT,
+    WARN as _WARN,
+)
 
 
 def _fmt_gb(n_bytes: int) -> str:
@@ -116,6 +117,106 @@ class _PartRow(QFrame):
             "font-family: 'Inter'; background: transparent;"
         )
         lay.addWidget(p)
+
+        info_btn = QPushButton("ⓘ  Détails")
+        info_btn.setFixedSize(82, 26)
+        info_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        info_btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: 1px solid {_BORDER};"
+            f"  border-radius: 7px; color: {_MUTED}; font-size: 10px; }}"
+            f"QPushButton:hover {{ background: {_HOVER}; color: {_TEXT}; }}"
+        )
+        info_btn.clicked.connect(lambda: _PartDetailDialog(part, self).exec())
+        lay.addWidget(info_btn)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Dialog informations détaillées
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class _PartDetailDialog(QDialog):
+    def __init__(self, part, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Partition — {part.device}")
+        self.setMinimumWidth(420)
+        self.setStyleSheet(
+            "QDialog { background: #0F1120; }"
+            "QLabel  { font-family: 'Inter'; background: transparent; }"
+        )
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(24, 20, 24, 20)
+        root.setSpacing(14)
+
+        title_lbl = QLabel(f"💿  {part.device}")
+        title_lbl.setStyleSheet(
+            f"color: {_TEXT}; font-size: 17px; font-weight: 700;"
+        )
+        root.addWidget(title_lbl)
+
+        sep = QFrame()
+        sep.setFixedHeight(1)
+        sep.setStyleSheet(f"background: {_BORDER}; border: none;")
+        root.addWidget(sep)
+
+        # Collect usage info
+        try:
+            usage = psutil.disk_usage(part.mountpoint)
+            total_str = _fmt_gb(usage.total)
+            used_str  = _fmt_gb(usage.used)
+            free_str  = _fmt_gb(usage.free)
+            pct_str   = f"{usage.percent:.1f}%"
+        except (PermissionError, OSError):
+            total_str = used_str = free_str = pct_str = "Accès refusé"
+
+        rows = [
+            ("Périphérique",    part.device),
+            ("Point de montage", part.mountpoint),
+            ("Système de fichiers", part.fstype or "inconnu"),
+            ("Options de montage", part.opts or "—"),
+            ("Taille totale",  total_str),
+            ("Espace utilisé", used_str),
+            ("Espace libre",   free_str),
+            ("Utilisation",    pct_str),
+        ]
+        if hasattr(part, "maxfile") and part.maxfile:
+            rows.append(("Nom de fichier max", str(part.maxfile)))
+        if hasattr(part, "maxpath") and part.maxpath:
+            rows.append(("Chemin max", str(part.maxpath)))
+
+        grid = QVBoxLayout()
+        grid.setSpacing(8)
+        for label, value in rows:
+            row_w = QWidget()
+            row_l = QHBoxLayout(row_w)
+            row_l.setContentsMargins(0, 0, 0, 0)
+            row_l.setSpacing(8)
+            lbl = QLabel(label)
+            lbl.setFixedWidth(180)
+            lbl.setStyleSheet(f"color: {_MUTED}; font-size: 12px;")
+            val = QLabel(value)
+            val.setWordWrap(True)
+            val.setStyleSheet(f"color: {_TEXT}; font-size: 12px; font-weight: 600;")
+            row_l.addWidget(lbl)
+            row_l.addWidget(val, stretch=1)
+            grid.addWidget(row_w)
+        root.addLayout(grid)
+
+        sep2 = QFrame()
+        sep2.setFixedHeight(1)
+        sep2.setStyleSheet(f"background: {_BORDER}; border: none;")
+        root.addWidget(sep2)
+
+        close_btn = QPushButton("Fermer")
+        close_btn.setFixedSize(90, 32)
+        close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        close_btn.setStyleSheet(
+            f"QPushButton {{ background: {_ACCENT}; color: white; border: none;"
+            "  border-radius: 8px; font-size: 12px; font-weight: 600; }}"
+            "QPushButton:hover { background: #005FCC; }"
+        )
+        close_btn.clicked.connect(self.accept)
+        root.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignRight)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

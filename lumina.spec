@@ -4,10 +4,8 @@ from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
 block_cipher = None
 
-# Only include DLL/env if they exist
+# Only include native helper if it exists (built via `cargo build --release`)
 _extra_binaries = []
-if os.path.exists('app/core/lumina_engine.dll'):
-    _extra_binaries.append(('app/core/lumina_engine.dll', 'app/core'))
 if os.path.exists('native/lumina_scan/target/release/lumina_scan.exe'):
     _extra_binaries.append((
         'native/lumina_scan/target/release/lumina_scan.exe',

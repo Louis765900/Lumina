@@ -6,15 +6,15 @@ TEXT: dict[str, dict[str, str]] = {
             "Scan rapide non disponible pour cette source. Lancez un scan profond."
         ),
         "scan.demo_disabled": (
-            "Le mode demo est desactive en production. "
-            "Definissez LUMINA_ENABLE_DEMO=1 pour les tests de developpement."
+            "Le mode démo est désactivé en production. "
+            "Définissez LUMINA_ENABLE_DEMO=1 pour les tests de développement."
         ),
         "scan.engine_native": "Moteur natif rapide",
         "scan.engine_python": "Moteur compatible Python",
         "settings.language": "Langue",
-        "settings.recovery_dir": "Dossier de recuperation",
+        "settings.recovery_dir": "Dossier de récupération",
         "settings.scan_engine": "Moteur de scan",
-        "disclaimer.title": "Avertissement recuperation",
+        "disclaimer.title": "Avertissement récupération",
     },
     "en": {
         "scan.quick_unavailable": (
