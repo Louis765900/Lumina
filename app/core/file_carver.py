@@ -74,12 +74,9 @@ SIGNATURES: dict[str, list[tuple[bytes, bytes | None]]] = {
     ".heif": [
         (b"ftypheif", None),
     ],
-    ".ico": [
-        (b"\x00\x00\x01\x00", None),
-    ],
-    ".cur": [
-        (b"\x00\x00\x02\x00", None),
-    ],
+    # .ico / .cur intentionally excluded: their 4-byte headers (\x00\x00\x01\x00 /
+    # \x00\x00\x02\x00) appear thousands of times per GB in Windows binary data,
+    # flooding the scan with false positives on system drives.
     ".psd": [
         (b"8BPS", None),
     ],

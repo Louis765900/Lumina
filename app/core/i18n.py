@@ -5,6 +5,10 @@ TEXT: dict[str, dict[str, str]] = {
         "scan.quick_unavailable": (
             "Scan rapide non disponible pour cette source. Lancez un scan profond."
         ),
+        "scan.quick_few_results": (
+            "Scan rapide : aucun fichier supprimé récent trouvé dans la MFT. "
+            "Lancez un Scan Complet pour une récupération approfondie par signature."
+        ),
         "scan.demo_disabled": (
             "Le mode démo est désactivé en production. "
             "Définissez LUMINA_ENABLE_DEMO=1 pour les tests de développement."
@@ -19,6 +23,10 @@ TEXT: dict[str, dict[str, str]] = {
     "en": {
         "scan.quick_unavailable": (
             "Quick Scan is not available for this source. Run Deep Scan instead."
+        ),
+        "scan.quick_few_results": (
+            "Quick Scan: no recently-deleted files found in the MFT. "
+            "Run a Deep Scan for signature-based recovery."
         ),
         "scan.demo_disabled": (
             "Demo mode is disabled in production. Set LUMINA_ENABLE_DEMO=1 "

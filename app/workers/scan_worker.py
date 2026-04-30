@@ -439,10 +439,17 @@ class ScanWorker(QThread):
                             self._found_files.append(info)
                         self.files_batch_found.emit([info])
 
+                    def _fs_active(byte_runs: list[tuple[int, int]]) -> None:
+                        # Register active (non-deleted) file ranges so the
+                        # carver skips byte ranges belonging to existing files.
+                        for start, length in byte_runs:
+                            dedup_index.add(start, length)
+
                     count = parser.enumerate_files(
                         stop_flag=lambda: self._stop_requested,
                         progress_cb=_fs_progress,
                         file_found_cb=_fs_file,
+                        active_file_cb=_fs_active,
                     )
                     self.status_text.emit(
                         f"{fs_name} : {count} fichier(s) récupéré(s) avec leur nom d'origine."
@@ -484,7 +491,14 @@ class ScanWorker(QThread):
         else:
             with self._lock:
                 n = len(self._found_files)
-            self.status_text.emit(f"Scan rapide terminé — {n} fichier(s) metadata trouvé(s).")
+            if n == 0:
+                message = t("scan.quick_few_results")
+                self.status_text.emit(message)
+                self.error.emit(message)
+            else:
+                self.status_text.emit(
+                    f"Scan rapide terminé — {n} fichier(s) supprimé(s) récupérable(s)."
+                )
         self.progress.emit(100)
 
     # ── Mode réel (FS metadata + FileCarver, avec dédup) ─────────────────────
