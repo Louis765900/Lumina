@@ -244,10 +244,12 @@ SIGNATURES: dict[str, list[tuple[bytes, bytes | None]]] = {
         (b"<!DOCTYPE html", b"</html>"),
         (b"<html",          b"</html>"),
     ],
+    # "From: " and "X-Pop: " are too generic (appear in plain text).
+    # These headers are distinctive enough to anchor an EML safely.
     ".eml": [
-        (b"From: ",       None),
-        (b"X-Pop: ",      None),
-        (b"Return-Path:", None),
+        (b"MIME-Version: 1.0",  None),
+        (b"Return-Path: <",     None),
+        (b"Message-ID: <",      None),
     ],
 
     # ── Additional RAW / Photo ────────────────────────────────────────
@@ -303,6 +305,32 @@ SIGNATURES: dict[str, list[tuple[bytes, bytes | None]]] = {
     ],
     ".ics": [
         (b"BEGIN:VCALENDAR", b"END:VCALENDAR"),
+    ],
+
+    # ── Windows system / installer formats ───────────────────────────
+    ".cab": [
+        (b"MSCF\x00\x00\x00\x00", None),   # Microsoft Cabinet
+    ],
+    ".swf": [
+        (b"FWS", None),   # Flash (uncompressed)
+        (b"CWS", None),   # Flash (zlib-compressed)
+        (b"ZWS", None),   # Flash (LZMA-compressed)
+    ],
+    ".wmf": [
+        # Aldus Placeable WMF (most common variant with magic header)
+        (b"\xd7\xcd\xc6\x9a", None),
+    ],
+    ".dwg": [
+        # AutoCAD drawing - version string AC10xx
+        (b"AC1009", None),   # AutoCAD R12
+        (b"AC1012", None),   # AutoCAD R13
+        (b"AC1014", None),   # AutoCAD R14
+        (b"AC1015", None),   # AutoCAD 2000
+        (b"AC1018", None),   # AutoCAD 2004
+        (b"AC1021", None),   # AutoCAD 2007
+        (b"AC1024", None),   # AutoCAD 2010
+        (b"AC1027", None),   # AutoCAD 2013
+        (b"AC1032", None),   # AutoCAD 2018+
     ],
 }
 
@@ -520,9 +548,8 @@ class FileCarver:
                 if pe_off_pos + 4 <= len(data):
                     pe_off = int.from_bytes(data[pe_off_pos:pe_off_pos + 4], "little")
                     pe_sig_pos = idx + pe_off
-                    if pe_off >= 4 and pe_sig_pos + 4 <= len(data):
-                        if data[pe_sig_pos:pe_sig_pos + 4] != b"PE\x00\x00":
-                            return None, "reject"
+                    if pe_off >= 4 and pe_sig_pos + 4 <= len(data) and data[pe_sig_pos:pe_sig_pos + 4] != b"PE\x00\x00":
+                        return None, "reject"
                     # pe_off out of window → accept with integrity 60 (set below)
 
             elif header == b"BM":
@@ -650,7 +677,7 @@ class FileCarver:
                     if entry is None:
                         continue
 
-                    ext, footer, plugin = entry
+                    ext, _footer, _plugin = entry
                     idx = m.start()
                     file_info, reason = self.build_file_info_from_candidate(
                         signature_id=self.signature_id(ext, header),
@@ -774,6 +801,10 @@ class FileCarver:
             ".7z":  10240,
             ".exe": 1024,
             ".sqlite": 1024,
+            ".cab": 5120,
+            ".swf": 2048,
+            ".wmf": 512,
+            ".dwg": 4096,
         }
         size_kb = defaults_kb.get(ext, 1024)
 

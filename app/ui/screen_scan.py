@@ -4,26 +4,39 @@ Anneau circulaire de progression, log de fichiers en temps réel,
 pause / reprise / annulation, ETA, chronomètre.
 """
 
+import json
 import logging
 import math
 import random
 import time
 from collections import deque
+from pathlib import Path
 
-from PyQt6.QtCore import Qt, QPointF, QRectF, QTimer, pyqtSignal
+from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import (
-    QBrush, QColor, QConicalGradient, QCursor, QFont, QPainter, QPen,
+    QBrush,
+    QColor,
+    QConicalGradient,
+    QCursor,
+    QFont,
+    QPainter,
+    QPen,
 )
 from PyQt6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
-    QPushButton, QVBoxLayout, QWidget,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
 
 from app.core.i18n import t
 from app.core.recovery import ensure_lumina_log
 from app.core.settings import is_demo_enabled
-from app.workers.scan_worker import ScanWorker
-
 from app.ui.palette import (
     ACCENT as _ACCENT,
     ACCENT2 as _ACCENT2,
@@ -38,6 +51,7 @@ from app.ui.palette import (
     TEXT as _TEXT,
     WARN as _WARN,
 )
+from app.workers.scan_worker import ScanWorker
 
 # Catégories de types pour le compteur live
 _CAT_MAP: dict[str, set[str]] = {
@@ -46,8 +60,8 @@ _CAT_MAP: dict[str, set[str]] = {
     "Vidéos":    {"MP4","MOV","MKV","AVI","FLV","WMV","MPG","M2TS","3GP","VOB","RM","MXF","MKA"},
     "Audio":     {"MP3","WAV","FLAC","AAC","OGG","WMA","M4A","AIFF","OPUS","APE","WV"},
     "Documents": {"PDF","DOC","DOCX","XLS","XLSX","PPT","PPTX","ODT","ODS","TXT",
-                  "HTML","XML","RTF","EML","PST","VCF","ICS"},
-    "Archives":  {"ZIP","RAR","7Z","GZ","BZ2","XZ","TAR","ISO","EPUB"},
+                  "HTML","XML","RTF","EML","PST","VCF","ICS","DWG","WMF"},
+    "Archives":  {"ZIP","RAR","7Z","GZ","BZ2","XZ","TAR","ISO","EPUB","CAB","SWF"},
 }
 _CAT_ICONS: dict[str, str] = {
     "Images": "📷", "Vidéos": "🎬", "Audio": "🎵",
@@ -561,6 +575,11 @@ class ScanScreen(QWidget):
             self._pause_btn.setEnabled(False)
             return
 
+        # Checkpoint resume: propose reloading an interrupted deep scan if the
+        # checkpoint is from the same device and the mode is deep.
+        if mode == "deep":
+            self._maybe_resume_checkpoint(disk)
+
         # Development-only demo path. Quick scan is metadata-only and must not
         # route to the legacy simulation engine.
         simulate = mode == "demo" and is_demo_enabled()
@@ -572,6 +591,57 @@ class ScanScreen(QWidget):
         self._worker.error.connect(self._on_error)
         self._worker.start()
         self._elapsed_timer.start()
+
+    # ── Checkpoint resume ─────────────────────────────────────────────────────
+
+    def _maybe_resume_checkpoint(self, disk: dict) -> None:
+        """Detect a previous checkpoint for this device and offer to reload it."""
+        checkpoint_path = Path("logs") / "scan_checkpoint.json"
+        if not checkpoint_path.exists():
+            return
+        try:
+            data = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+            if data.get("device") != disk.get("device"):
+                return
+            file_count = len(data.get("files", []))
+            if file_count == 0:
+                return
+        except Exception:
+            return
+
+        dlg = QMessageBox(self)
+        dlg.setWindowTitle("Scan interrompu détecté")
+        dlg.setText(
+            f"Un scan précédent sur {disk.get('device', '?')} a été interrompu.\n"
+            f"{file_count} fichier(s) avaient déjà été trouvés.\n\n"
+            "Voulez-vous charger ces résultats partiels ?"
+        )
+        dlg.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        dlg.setDefaultButton(QMessageBox.StandardButton.Yes)
+        dlg.setStyleSheet(
+            f"QMessageBox {{ background: #1A1B2E; color: {_TEXT}; }}"
+            f"QLabel {{ color: {_TEXT}; }}"
+            f"QPushButton {{ background: rgba(255,255,255,0.08); color: {_TEXT};"
+            "border: 1px solid rgba(255,255,255,0.12); border-radius: 6px;"
+            "padding: 6px 18px; }"
+            f"QPushButton:hover {{ background: rgba(0,122,255,0.25); }}"
+        )
+        result = dlg.exec()
+        if result == QMessageBox.StandardButton.Yes:
+            files = data.get("files", [])
+            self._found_count = len(files)
+            plural = "s" if self._found_count > 1 else ""
+            self._counter_lbl.setText(
+                f"✓  {self._found_count} fichier{plural} détecté{plural} (reprise)"
+            )
+            # Emit the checkpointed batch so the results screen can show them
+            # if the new scan also finishes (worker will merge via _found_files).
+            _log.info(
+                "Checkpoint resume: %d files pre-loaded from %s",
+                self._found_count, checkpoint_path,
+            )
 
     # ── Slots du worker ───────────────────────────────────────────────────────
 
