@@ -411,7 +411,7 @@ class NTFSParser(BaseFSParser):
             base = 0x1BE + i * 16
             if sector0[base + 4] == 0x07:
                 lba = struct.unpack_from("<I", sector0, base + 8)[0]
-                offset = lba * 512
+                offset = int(lba) * 512
                 _log.info("[NTFSParser] MBR slot %d: NTFS at LBA %d (offset %d B).", i, lba, offset)
                 return offset
         _log.warning("[NTFSParser] No NTFS (type 07) entry found in MBR.")
@@ -443,7 +443,7 @@ class NTFSParser(BaseFSParser):
                 continue
             if entry[:16] == _GPT_BASIC_DATA_GUID:
                 lba = struct.unpack_from("<Q", entry, 32)[0]
-                offset = lba * 512
+                offset = int(lba) * 512
                 _log.info("[NTFSParser] GPT: Basic Data partition at LBA %d (offset %d B).", lba, offset)
                 return offset
 
@@ -522,7 +522,7 @@ class NTFSParser(BaseFSParser):
             if atype == _ATTR_DATA and non_res:
                 actual_sz = struct.unpack_from("<Q", data, pos + 0x30)[0]
                 if actual_sz > 0:
-                    return actual_sz // _MFT_ENTRY_SIZE
+                    return int(actual_sz) // _MFT_ENTRY_SIZE
             pos += alen
 
         # Heuristic: ~1 MFT record per 1 KB of total disk
@@ -810,7 +810,7 @@ class FAT32Parser(BaseFSParser):
             if len(raw) < 4:
                 return _EOC
             val = struct.unpack_from("<I", raw, 0)[0] & 0x0FFF_FFFF
-            return val
+            return int(val)
         except OSError:
             return _EOC
 

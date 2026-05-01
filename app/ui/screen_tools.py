@@ -3,10 +3,7 @@ Lumina v2.0 — Écran 6 : Outils avancés
 Rapport S.M.A.R.T. fonctionnel (wmic) ; autres outils prévus dans une future version.
 """
 
-import glob
-import json
 import logging
-import os
 import pathlib
 import subprocess
 

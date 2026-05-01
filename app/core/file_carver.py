@@ -20,6 +20,8 @@ import os
 import pkgutil
 import re
 import threading
+from collections.abc import Callable
+from typing import Any
 
 from app.core.recovery import ensure_lumina_log
 from app.plugins.carvers.base_plugin import BaseCarverPlugin
@@ -506,7 +508,7 @@ class FileCarver:
         data_base_offset: int,
         device: str,
         counter: dict[str, int],
-        dedup_check=None,
+        dedup_check: Callable[..., Any] | None = None,
         source: str = "carver",
     ) -> tuple[dict | None, str | None]:
         """
@@ -597,11 +599,11 @@ class FileCarver:
     def scan(
         self,
         device: str,
-        progress_cb=None,
-        file_found_cb=None,
-        stop_flag=None,
+        progress_cb: Callable[..., Any] | None = None,
+        file_found_cb: Callable[..., Any] | None = None,
+        stop_flag: Callable[..., Any] | None = None,
         max_bytes: int | None = None,
-        dedup_check=None,
+        dedup_check: Callable[..., Any] | None = None,
     ) -> list[dict]:
         """
         Scan a raw device for known file signatures.
@@ -739,7 +741,7 @@ class FileCarver:
         """
         result = [0]
 
-        def _seek():
+        def _seek() -> None:
             try:
                 tmp_fd = os.open(device, os.O_RDONLY | getattr(os, "O_BINARY", 0))
                 try:

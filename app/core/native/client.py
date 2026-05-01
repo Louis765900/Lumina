@@ -98,7 +98,7 @@ class NativeScanClient:
 
         binary = "lumina_scan.exe" if os.name == "nt" else "lumina_scan"
         if getattr(sys, "frozen", False):
-            base = Path(sys._MEIPASS)
+            base = Path(getattr(sys, "_MEIPASS", ""))
             return base / "native" / "lumina_scan" / binary
 
         repo_root = Path(__file__).resolve().parents[3]

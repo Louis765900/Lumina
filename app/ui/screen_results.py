@@ -24,7 +24,6 @@ from app.ui.palette import (
     ACCENT_SELECTION as _ACCENT,
     BORDER as _BORDER,
     CARD as _CARD,
-    ERR as _ERR,
     HOVER as _HOVER,
     MUTED as _MUTED,
     OK as _OK,
@@ -517,7 +516,8 @@ class _FileDetailPanel(QWidget):
         self.setFixedWidth(self.WIDTH)
         self.setStyleSheet(
             "_FileDetailPanel { background: #1a1b27;"
-            f"  border-left: 1px solid rgba(255,255,255,0.05); }}"
+            "  border-left: 1px solid rgba(255,255,255,0.05); }"
+            "}"
         )
         self._info: dict = {}
 
@@ -822,7 +822,7 @@ class ResultsScreen(QWidget):
             btn = QPushButton(label)
             btn.setFixedHeight(28)
             btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-            btn.clicked.connect(lambda _, l=label: self._set_filter(l))
+            btn.clicked.connect(lambda _, lbl=label: self._set_filter(lbl))
             self._filter_btns[label] = btn
             fb.addWidget(btn)
 
@@ -1329,7 +1329,7 @@ class ResultsScreen(QWidget):
         msg = QMessageBox(self)
         msg.setWindowTitle("Rapport exporté")
         msg.setIcon(QMessageBox.Icon.Information)
-        msg.setText(f"<b>Rapport enregistré avec succès.</b>")
+        msg.setText("<b>Rapport enregistré avec succès.</b>")
         msg.setInformativeText(path)
         open_btn = msg.addButton("🌐  Ouvrir dans le navigateur", QMessageBox.ButtonRole.ActionRole)
         msg.addButton("Fermer", QMessageBox.ButtonRole.RejectRole)

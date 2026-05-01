@@ -4,10 +4,7 @@ Informations sur les partitions, lancement de CHKDSK et SFC depuis l'UI,
 sans dépendance à une API externe.
 """
 
-import os
 import subprocess
-
-import psutil
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QCursor
@@ -23,7 +20,6 @@ from app.ui.palette import (
     BORDER as _BORDER,
     CARD as _CARD,
     ERR as _ERR,
-    HOVER as _HOVER,
     MUTED as _MUTED,
     OK as _OK,
     SUB as _SUB,
@@ -106,7 +102,7 @@ class _StatCard(QFrame):
         ico.setFixedSize(34, 34)
         ico.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ico.setStyleSheet(
-            f"font-size: 18px; background: rgba(0,122,255,0.1); border-radius: 7px;"
+            "font-size: 18px; background: rgba(0,122,255,0.1); border-radius: 7px;"
         )
         lay.addWidget(ico)
 

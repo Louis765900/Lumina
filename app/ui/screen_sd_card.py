@@ -4,9 +4,9 @@ Détection automatique des périphériques amovibles, bouton scanner.
 """
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QCursor
+from PyQt6.QtGui import QCursor
 from PyQt6.QtWidgets import (
-    QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel,
+    QFrame, QHBoxLayout, QLabel,
     QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
@@ -16,12 +16,9 @@ from app.ui.palette import (
     ACCENT as _ACCENT,
     BORDER as _BORDER,
     CARD as _CARD,
-    HOVER as _HOVER,
     MUTED as _MUTED,
-    OK as _OK,
     SUB as _SUB,
     TEXT as _TEXT,
-    WARN as _WARN,
 )
 
 

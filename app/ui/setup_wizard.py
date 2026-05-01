@@ -23,7 +23,6 @@ from PyQt6.QtWidgets import (
 
 from app.core.settings import load_settings, save_settings, validate_settings
 from app.ui.palette import (
-    ACCENT as _ACCENT,
     BG2 as _BG,
     MUTED as _MUTED,
     SUB as _SUB,

@@ -6,10 +6,7 @@ Animations de fondu échelonnées, overlay "Scanner" au survol.
 
 import datetime
 import json
-import math
 import os
-
-import psutil
 
 _HISTORY_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
@@ -17,13 +14,13 @@ _HISTORY_PATH = os.path.join(
 )
 
 from PyQt6.QtCore import (
-    Qt, QEasingCurve, QPointF, QPropertyAnimation, QRectF,
+    Qt, QEasingCurve, QPropertyAnimation, QRectF,
     QTimer, QVariantAnimation, pyqtSignal,
 )
 from PyQt6.QtGui import QBrush, QColor, QCursor, QPainter, QPen
 from PyQt6.QtWidgets import (
     QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel,
-    QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
+    QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
 from app.core.disk_detector import DiskDetector
@@ -32,7 +29,6 @@ from app.ui.palette import (
     BORDER as _BORDER,
     CARD as _CARD,
     HBORDER as _HBORDER,
-    HOVER as _HOVER,
     MUTED as _MUTED,
     SUB as _SUB,
     TEXT as _TEXT,
