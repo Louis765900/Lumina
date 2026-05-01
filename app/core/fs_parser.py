@@ -1,5 +1,5 @@
 """
-Lumina – NTFS File System Parser
+Lumina - NTFS File System Parser
 Reads the MFT (Master File Table) to recover deleted files with their
 original filename and directory path.
 
@@ -22,7 +22,7 @@ import struct
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 # ── Logger ────────────────────────────────────────────────────────────────────
 _log = logging.getLogger("lumina.recovery")
@@ -34,7 +34,7 @@ _FILETIME_EPOCH = 116_444_736_000_000_000
 
 # Well-known MFT entry indices
 _IDX_ROOT           = 5   # Root directory ($.)  — parent of all top-level items
-_IDX_MAX_SYSTEM     = 11  # Indices 0–11 are NTFS metadata files; skip them
+_IDX_MAX_SYSTEM     = 11  # Indices 0-11 are NTFS metadata files; skip them
 
 # MFT entry flags
 _FLAG_IN_USE        = 0x01
@@ -46,7 +46,7 @@ _ATTR_FILE_NAME     = 0x30
 _ATTR_DATA          = 0x80
 _ATTR_END           = 0xFFFF_FFFF
 
-# Batch size for MFT reads (entries per syscall — 64 × 1024 = 64 KB)
+# Batch size for MFT reads (entries per syscall -- 64 * 1024 = 64 KB)
 _BATCH              = 64
 
 # GPT basic-data-partition type GUID (little-endian encoding)
@@ -66,7 +66,7 @@ _GPT_BASIC_DATA_GUID = bytes([
 class BootSector:
     bytes_per_sector:      int
     sectors_per_cluster:   int
-    cluster_size:          int   # = bytes_per_sector × sectors_per_cluster
+    cluster_size:          int   # = bytes_per_sector * sectors_per_cluster
     mft_start_byte:        int   # Absolute byte offset of $MFT on device
     total_sectors:         int
     partition_offset:      int   # Byte offset of this NTFS volume on device (0 for logical vols)
@@ -99,7 +99,7 @@ def _filetime_to_dt(filetime: int) -> datetime | None:
         return None
     try:
         ts = (filetime - _FILETIME_EPOCH) / 10_000_000
-        return datetime.fromtimestamp(ts, tz=timezone.utc)
+        return datetime.fromtimestamp(ts, tz=UTC)
     except (OSError, OverflowError, ValueError):
         return None
 
@@ -293,9 +293,9 @@ class NTFSParser(BaseFSParser):
     ) -> int:
         """
         Two-pass MFT scan:
-          Pass 1 (0–50 %): read all entries, build active-directory cache,
+          Pass 1 (0-50 %): read all entries, build active-directory cache,
                            collect deleted-file entries.
-          Pass 2 (50–100 %): resolve directory paths, emit file_found_cb.
+          Pass 2 (50-100 %): resolve directory paths, emit file_found_cb.
 
         Returns the number of deleted files emitted.
         """
@@ -728,9 +728,8 @@ class FAT32Parser(BaseFSParser):
         progress_cb: Callable[[int], None],
         file_found_cb: Callable[[dict], None],
     ) -> int:
-        if not self._ready:
-            if not self.probe():
-                return 0
+        if not self._ready and not self.probe():
+            return 0
         visited: set[int] = set()
         count = self._walk_dir(
             cluster=self._root_cluster,
@@ -754,7 +753,7 @@ class FAT32Parser(BaseFSParser):
         if len(data) < 90:
             return False
 
-        # Filesystem type string is at bytes 82–89 ("FAT32   ")
+        # Filesystem type string is at bytes 82-89 ("FAT32   ")
         fs_type = data[0x52:0x5A]
         if fs_type != b"FAT32   ":
             _log.debug(
@@ -803,24 +802,24 @@ class FAT32Parser(BaseFSParser):
         Returns the next cluster number, or 0x0FFF_FFFF (EOC sentinel) on any
         error or when the chain ends.
         """
-        _EOC = 0x0FFF_FFFF
+        _eoc = 0x0FFF_FFFF
         try:
             fat_off = self._fat_start + cluster * 4
             raw = self._read_raw(fat_off, 4)
             if len(raw) < 4:
-                return _EOC
+                return _eoc
             val = struct.unpack_from("<I", raw, 0)[0] & 0x0FFF_FFFF
             return int(val)
         except OSError:
-            return _EOC
+            return _eoc
 
     def _collect_chain(self, start_cluster: int) -> list[int]:
         """Return the ordered list of clusters in a chain (cycle-safe, max 65536)."""
-        _EOC_MIN = 0x0FFF_FFF8
+        _eoc_min = 0x0FFF_FFF8
         chain: list[int] = []
         seen: set[int] = set()
         cur = start_cluster
-        while cur >= 2 and cur < _EOC_MIN and cur not in seen:
+        while cur >= 2 and cur < _eoc_min and cur not in seen:
             seen.add(cur)
             chain.append(cur)
             cur = self._next_cluster(cur)
@@ -942,10 +941,7 @@ class FAT32Parser(BaseFSParser):
                 byte_offset = self._cluster_offset(start_cluster) if start_cluster >= 2 else 0
 
                 dot = name.rfind(".")
-                if 0 < dot < len(name) - 1:
-                    ftype = name[dot + 1:].upper()
-                else:
-                    ftype = "UNKNOWN"
+                ftype = name[dot + 1:].upper() if 0 < dot < len(name) - 1 else "UNKNOWN"
 
                 mft_path = path_prefix + name
                 integrity = 70 if is_deleted else 85

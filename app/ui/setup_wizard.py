@@ -24,8 +24,14 @@ from PyQt6.QtWidgets import (
 from app.core.settings import load_settings, save_settings, validate_settings
 from app.ui.palette import (
     BG2 as _BG,
+)
+from app.ui.palette import (
     MUTED as _MUTED,
+)
+from app.ui.palette import (
     SUB as _SUB,
+)
+from app.ui.palette import (
     TEXT as _TEXT,
 )
 

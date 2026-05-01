@@ -8,30 +8,53 @@ import datetime
 import json
 import os
 
-_HISTORY_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "logs", "history.json",
-)
-
 from PyQt6.QtCore import (
-    Qt, QEasingCurve, QPropertyAnimation, QRectF,
-    QTimer, QVariantAnimation, pyqtSignal,
+    QEasingCurve,
+    QPropertyAnimation,
+    QRectF,
+    Qt,
+    QTimer,
+    QVariantAnimation,
+    pyqtSignal,
 )
 from PyQt6.QtGui import QBrush, QColor, QCursor, QPainter, QPen
 from PyQt6.QtWidgets import (
-    QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel,
-    QPushButton, QScrollArea, QVBoxLayout, QWidget,
+    QFrame,
+    QGraphicsOpacityEffect,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
 )
 
 from app.core.disk_detector import DiskDetector
 from app.ui.palette import (
     ACCENT as _ACCENT,
+)
+from app.ui.palette import (
     BORDER as _BORDER,
+)
+from app.ui.palette import (
     CARD as _CARD,
+)
+from app.ui.palette import (
     HBORDER as _HBORDER,
+)
+from app.ui.palette import (
     MUTED as _MUTED,
+)
+from app.ui.palette import (
     SUB as _SUB,
+)
+from app.ui.palette import (
     TEXT as _TEXT,
+)
+
+_HISTORY_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "logs", "history.json",
 )
 
 # Couleurs par type de disque
@@ -177,7 +200,7 @@ class _ScanOverlay(QWidget):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  Carte disque (280 × 120)
+#  Carte disque (280 x 120)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class DiskCard(QFrame):
@@ -295,7 +318,7 @@ class DiskCard(QFrame):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  Carte scénario de récupération (192 × 128)
+#  Carte scénario de récupération (192 x 128)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class _ScenarioCard(QFrame):
@@ -372,7 +395,7 @@ class _ScenarioCard(QFrame):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  Carte accès rapide (140 × 140)
+#  Carte accès rapide (140 x 140)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class _QuickCard(QFrame):
@@ -518,7 +541,7 @@ class _HistoryRow(QFrame):
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton and self._can_reload:
             try:
-                with open(self._entry["scan_file"], "r", encoding="utf-8") as fh:
+                with open(self._entry["scan_file"], encoding="utf-8") as fh:
                     files = json.load(fh)
                 self.reload_requested.emit(files)
             except Exception:
@@ -720,7 +743,7 @@ class HomeScreen(QWidget):
     def _add_history(self):
         """Affiche les 5 derniers scans depuis logs/history.json."""
         try:
-            with open(_HISTORY_PATH, "r", encoding="utf-8") as fh:
+            with open(_HISTORY_PATH, encoding="utf-8") as fh:
                 history: list[dict] = json.load(fh)
         except Exception:
             return   # pas d'historique → section absente

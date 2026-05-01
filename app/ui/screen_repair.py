@@ -9,21 +9,44 @@ import subprocess
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QCursor
 from PyQt6.QtWidgets import (
-    QComboBox, QFrame, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QTextEdit, QVBoxLayout, QWidget,
+    QComboBox,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
 
 from app.core.disk_detector import DiskDetector
-
 from app.ui.palette import (
     ACCENT as _ACCENT,
+)
+from app.ui.palette import (
     BORDER as _BORDER,
+)
+from app.ui.palette import (
     CARD as _CARD,
+)
+from app.ui.palette import (
     ERR as _ERR,
+)
+from app.ui.palette import (
     MUTED as _MUTED,
+)
+from app.ui.palette import (
     OK as _OK,
+)
+from app.ui.palette import (
     SUB as _SUB,
+)
+from app.ui.palette import (
     TEXT as _TEXT,
+)
+from app.ui.palette import (
     WARN as _WARN,
 )
 
@@ -364,17 +387,16 @@ class RepairScreen(QWidget):
     def _run_dism(self):
         op = self._dism_combo.currentData() or "CheckHealth"
         if op == "RestoreHealth":
-            from PyQt6.QtWidgets import QMessageBox as _QMB
-            reply = _QMB.warning(
+            reply = QMessageBox.warning(
                 self,
                 "DISM RestoreHealth",
                 "Cette opération peut prendre plusieurs minutes\n"
                 "et nécessite une connexion internet active.\n\n"
                 "Continuer ?",
-                _QMB.StandardButton.Yes | _QMB.StandardButton.No,
-                _QMB.StandardButton.No,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
             )
-            if reply != _QMB.StandardButton.Yes:
+            if reply != QMessageBox.StandardButton.Yes:
                 return
         self._run_cmd(["dism", "/Online", "/Cleanup-Image", f"/{op}"])
 

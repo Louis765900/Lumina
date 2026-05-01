@@ -39,16 +39,38 @@ from app.core.recovery import ensure_lumina_log
 from app.core.settings import is_demo_enabled
 from app.ui.palette import (
     ACCENT as _ACCENT,
+)
+from app.ui.palette import (
     ACCENT2 as _ACCENT2,
+)
+from app.ui.palette import (
     BORDER as _BORDER,
+)
+from app.ui.palette import (
     CARD as _CARD,
+)
+from app.ui.palette import (
     ERR as _ERR,
+)
+from app.ui.palette import (
     HOVER as _HOVER,
+)
+from app.ui.palette import (
     MUTED as _MUTED,
+)
+from app.ui.palette import (
     OK as _OK,
+)
+from app.ui.palette import (
     OK_BG as _OK_BG,
+)
+from app.ui.palette import (
     SUB as _SUB,
+)
+from app.ui.palette import (
     TEXT as _TEXT,
+)
+from app.ui.palette import (
     WARN as _WARN,
 )
 from app.workers.scan_worker import ScanWorker
@@ -105,11 +127,11 @@ class CircularProgress(QWidget):
         self._timer.setInterval(33)   # ~30 fps
         self._timer.timeout.connect(self._tick)
 
-    def setValue(self, v: int):
+    def set_value(self, v: int):
         self._value = max(0, min(100, v))
         self.update()
 
-    def setActive(self, v: bool):
+    def set_active(self, v: bool):
         self._active = v
         if v:
             self._timer.start()
@@ -118,7 +140,7 @@ class CircularProgress(QWidget):
             self._particles.clear()
         self.update()
 
-    def setPaused(self, v: bool):
+    def set_paused(self, v: bool):
         self._paused = v
         self.update()
 
@@ -178,7 +200,7 @@ class CircularProgress(QWidget):
         # Lueur (glow) si actif
         if self._active and self._value > 0:
             pa = int(6 + 5 * math.sin(math.radians(self._pulse)))
-            for grw, ga in ((rw + 16, pa), (rw + 7, pa * 2)):
+            for grw, _ga in ((rw + 16, pa), (rw + 7, pa * 2)):
                 gpen = QPen(QColor(ring_col), grw,
                             Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
                 gpen.setColor(QColor(ring_col))
@@ -543,9 +565,9 @@ class ScanScreen(QWidget):
                 "border-radius: 10px; padding: 3px 10px; font-family: 'Inter';"
             )
 
-        self._ring.setValue(0)
-        self._ring.setActive(True)
-        self._ring.setPaused(False)
+        self._ring.set_value(0)
+        self._ring.set_active(True)
+        self._ring.set_paused(False)
 
         self._status_lbl.setText("Initialisation…")
         self._counter_lbl.setText("✓  0 fichier détecté")
@@ -609,10 +631,7 @@ class ScanScreen(QWidget):
         try:
             raw = json.loads(checkpoint_path.read_text(encoding="utf-8"))
             # Checkpoint is a flat list of file dicts written by _save_checkpoint.
-            if isinstance(raw, list):
-                files = raw
-            else:
-                files = raw.get("files", [])
+            files = raw if isinstance(raw, list) else raw.get("files", [])
             if not files:
                 return []
             # Only resume if the first file matches the current device.
@@ -658,7 +677,7 @@ class ScanScreen(QWidget):
     # ── Slots du worker ───────────────────────────────────────────────────────
 
     def _on_progress(self, pct: int):
-        self._ring.setValue(pct)
+        self._ring.set_value(pct)
         self._update_eta(pct)
 
     def _on_status(self, text: str):
@@ -727,8 +746,8 @@ class ScanScreen(QWidget):
         if self._had_error:
             return
         self._elapsed_timer.stop()
-        self._ring.setActive(False)
-        self._ring.setValue(100)
+        self._ring.set_active(False)
+        self._ring.set_value(100)
         self._cancel_btn.setEnabled(False)
         self._pause_btn.setEnabled(False)
         self._title.setText("Analyse terminée")
@@ -738,7 +757,7 @@ class ScanScreen(QWidget):
     def _on_error(self, msg: str):
         self._had_error = True
         self._elapsed_timer.stop()
-        self._ring.setActive(False)
+        self._ring.set_active(False)
         self._status_lbl.setText(f"Erreur : {msg}")
         self._title.setText("Erreur d'analyse")
         self._eta_lbl.setText("")
@@ -752,12 +771,12 @@ class ScanScreen(QWidget):
             return
         if self._worker.is_paused():
             self._worker.resume()
-            self._ring.setPaused(False)
+            self._ring.set_paused(False)
             self._pause_btn.setText("⏸  PAUSE")
             self._elapsed_timer.start()
         else:
             self._worker.pause()
-            self._ring.setPaused(True)
+            self._ring.set_paused(True)
             self._pause_btn.setText("▶  REPRENDRE")
             self._elapsed_timer.stop()
 
@@ -769,8 +788,8 @@ class ScanScreen(QWidget):
 
     def _on_cancel(self):
         self._elapsed_timer.stop()
-        self._ring.setActive(False)
-        self._ring.setPaused(False)
+        self._ring.set_active(False)
+        self._ring.set_paused(False)
         self._eta_lbl.setText("")
         if self._worker:
             self._detach_worker(self._worker)

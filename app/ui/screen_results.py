@@ -4,6 +4,7 @@ Grille de miniatures, filtres par type, recherche, sélection multiple,
 extraction vers un dossier choisi par l'utilisateur.
 """
 
+import contextlib
 import datetime
 import glob
 import hashlib
@@ -14,6 +15,39 @@ import threading
 import unicodedata
 import xml.etree.ElementTree as ET
 
+from PyQt6.QtCore import QRectF, Qt, QThread, pyqtSignal
+from PyQt6.QtGui import (
+    QAction,
+    QBrush,
+    QColor,
+    QCursor,
+    QFont,
+    QImage,
+    QLinearGradient,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPixmap,
+)
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QFileDialog,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QMessageBox,
+    QProgressBar,
+    QProgressDialog,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
+
 from app.core.recovery import (
     default_recovery_dir,
     ensure_lumina_log,
@@ -22,31 +56,35 @@ from app.core.recovery import (
 )
 from app.ui.palette import (
     ACCENT_SELECTION as _ACCENT,
+)
+from app.ui.palette import (
     BORDER as _BORDER,
+)
+from app.ui.palette import (
     CARD as _CARD,
+)
+from app.ui.palette import (
     HOVER as _HOVER,
+)
+from app.ui.palette import (
     MUTED as _MUTED,
+)
+from app.ui.palette import (
     OK as _OK,
+)
+from app.ui.palette import (
     SUB as _SUB,
+)
+from app.ui.palette import (
     TEXT2 as _TEXT,
+)
+from app.ui.palette import (
     WARN as _WARN,
 )
 
 _HISTORY_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
     "logs", "history.json",
-)
-
-from PyQt6.QtCore import Qt, QRectF, QThread, pyqtSignal
-from PyQt6.QtGui import (
-    QAction, QBrush, QColor, QCursor, QFont, QImage, QLinearGradient, QPainter,
-    QPainterPath, QPen, QPixmap,
-)
-from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QFileDialog, QFrame,
-    QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMenu, QMessageBox,
-    QProgressBar, QProgressDialog, QPushButton, QScrollArea,
-    QVBoxLayout, QWidget,
 )
 
 # ── Logger ───────────────────────────────────────────────────────────────────
@@ -141,7 +179,7 @@ def _integrity_label(pct: int) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  Miniature de fichier récupéré (140 × 160)
+#  Miniature de fichier récupéré (140 x 160)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class FileThumb(QWidget):
@@ -991,7 +1029,7 @@ class ResultsScreen(QWidget):
             with open(scan_path, "w", encoding="utf-8") as fh:
                 json.dump(files, fh, ensure_ascii=False)
             try:
-                with open(_HISTORY_PATH, "r", encoding="utf-8") as fh:
+                with open(_HISTORY_PATH, encoding="utf-8") as fh:
                     history = json.load(fh)
             except Exception:
                 history = []
@@ -1004,10 +1042,8 @@ class ResultsScreen(QWidget):
             logs_dir = os.path.dirname(_HISTORY_PATH)
             for orphan in glob.glob(os.path.join(logs_dir, "scan_*.json")):
                 if orphan not in referenced and orphan != scan_path:
-                    try:
+                    with contextlib.suppress(OSError):
                         os.remove(orphan)
-                    except OSError:
-                        pass
         except Exception:
             pass   # échec silencieux
 
@@ -1363,16 +1399,16 @@ class ResultsScreen(QWidget):
             return
 
         # ── Namespaces ──────────────────────────────────────────────────────
-        NS_DFXML  = "http://www.forensicswiki.org/wiki/Category:Digital_Forensics_XML"
-        NS_DC     = "http://purl.org/dc/elements/1.1/"
-        NS_LUMINA = "https://lumina.local/dfxml-ext"
-        ET.register_namespace("",       NS_DFXML)
-        ET.register_namespace("dc",     NS_DC)
-        ET.register_namespace("lumina", NS_LUMINA)
+        ns_dfxml  = "http://www.forensicswiki.org/wiki/Category:Digital_Forensics_XML"
+        ns_dc     = "http://purl.org/dc/elements/1.1/"
+        ns_lumina = "https://lumina.local/dfxml-ext"
+        ET.register_namespace("",       ns_dfxml)
+        ET.register_namespace("dc",     ns_dc)
+        ET.register_namespace("lumina", ns_lumina)
 
-        def dfxml(tag: str) -> str:   return f"{{{NS_DFXML}}}{tag}"
-        def dc(tag: str) -> str:      return f"{{{NS_DC}}}{tag}"
-        def lumina(tag: str) -> str:  return f"{{{NS_LUMINA}}}{tag}"
+        def dfxml(tag: str) -> str:   return f"{{{ns_dfxml}}}{tag}"
+        def dc(tag: str) -> str:      return f"{{{ns_dc}}}{tag}"
+        def lumina(tag: str) -> str:  return f"{{{ns_lumina}}}{tag}"
 
         # ── Root ────────────────────────────────────────────────────────────
         root = ET.Element(dfxml("dfxml"), attrib={"xmloutputversion": "1.0"})

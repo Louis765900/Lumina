@@ -10,7 +10,7 @@ These headers do not collide with generic TIFF (.tiff / .arw / .nef) so
 no MIME-level disambiguation is needed — the header match alone is
 conclusive.
 
-RAW files are always large (typically 8–50 MB). We can't reliably find an
+RAW files are always large (typically 8-50 MB). We can't reliably find an
 EOF marker inside a 4 KB window, so estimate_size returns the default with
 integrity 75 (MIME-confirmed, no footer found).
 """
@@ -51,10 +51,7 @@ class RawPhotoPlugin(BaseCarverPlugin):
         ]
 
     def validate_mime(self, file_bytes: bytes) -> bool:
-        for magic in self._MAGIC:
-            if file_bytes[: len(magic)] == magic:
-                return True
-        return False
+        return any(file_bytes[:len(magic)] == magic for magic in self._MAGIC)
 
     def refine_extension(self, data: bytes, idx: int) -> str:
         for magic, ext in self._MAGIC.items():

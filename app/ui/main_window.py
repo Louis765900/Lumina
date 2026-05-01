@@ -5,33 +5,59 @@ feux tricolores macOS, sidebar de navigation, QStackedWidget pour les écrans,
 icône de barre des tâches système.
 """
 
-from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer, pyqtSignal
+from PyQt6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QColor, QFont, QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import (
-    QApplication, QDialog, QFrame, QGraphicsOpacityEffect, QHBoxLayout,
-    QLabel, QMainWindow, QPushButton, QSizePolicy, QStackedWidget,
-    QSystemTrayIcon, QMenu, QVBoxLayout, QWidget,
+    QApplication,
+    QDialog,
+    QFrame,
+    QGraphicsOpacityEffect,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QMenu,
+    QPushButton,
+    QSizePolicy,
+    QStackedWidget,
+    QSystemTrayIcon,
+    QVBoxLayout,
+    QWidget,
 )
-
-from app.ui.screen_home       import HomeScreen
-from app.ui.screen_scan       import ScanScreen
-from app.ui.screen_results    import ResultsScreen
-from app.ui.screen_sd_card    import SdCardScreen
-from app.ui.screen_partitions import PartitionsScreen
-from app.ui.screen_repair     import RepairScreen
-from app.ui.screen_tools      import ToolsScreen
 
 from app.ui.palette import (
     ACCENT as _ACCENT,
+)
+from app.ui.palette import (
     BG as _BG,
+)
+from app.ui.palette import (
     BG2 as _BG2,
+)
+from app.ui.palette import (
     BORDER as _BORDER,
+)
+from app.ui.palette import (
     HOVER as _HOVER,
+)
+from app.ui.palette import (
     MUTED as _MUTED,
+)
+from app.ui.palette import (
     SIDEBAR as _SIDEBAR,
+)
+from app.ui.palette import (
     SUB as _SUB,
+)
+from app.ui.palette import (
     TEXT as _TEXT,
 )
+from app.ui.screen_home import HomeScreen
+from app.ui.screen_partitions import PartitionsScreen
+from app.ui.screen_repair import RepairScreen
+from app.ui.screen_results import ResultsScreen
+from app.ui.screen_scan import ScanScreen
+from app.ui.screen_sd_card import SdCardScreen
+from app.ui.screen_tools import ToolsScreen
 
 # ── Indices des écrans ────────────────────────────────────────────────────────
 IDX_HOME       = 0
@@ -48,7 +74,7 @@ IDX_TOOLS      = 6
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class _TrafficBtn(QPushButton):
-    """Un bouton rond macOS (12×12)."""
+    """Un bouton rond macOS (12x12)."""
 
     def __init__(self, color: str, symbol: str, parent=None):
         super().__init__("", parent)
@@ -75,8 +101,8 @@ class _TrafficLights(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(8)
 
-        self._close = _TrafficBtn("#FF5F57", "×")
-        self._min   = _TrafficBtn("#FEBC2E", "−")
+        self._close = _TrafficBtn("#FF5F57", "x")
+        self._min   = _TrafficBtn("#FEBC2E", "-")
         self._zoom  = _TrafficBtn("#28C840", "+")
 
         self._close.clicked.connect(win.close)
@@ -93,7 +119,7 @@ class _TrafficLights(QWidget):
             self._win.showMaximized()
 
     def enterEvent(self, e):
-        for b, s in [(self._close, "×"), (self._min, "−"), (self._zoom, "+")]:
+        for b, _ in [(self._close, "x"), (self._min, "-"), (self._zoom, "+")]:
             b.show_symbol(True)
         super().enterEvent(e)
 
@@ -370,7 +396,7 @@ class _ScanModeDialog(QDialog):
         modes_row.setSpacing(14)
         self._quick_btn = self._make_mode_card(
             "⚡", "Scan Rapide",
-            "Uniquement fichiers supprimés\nrécemment (MFT NTFS). 2–5 min.",
+            "Uniquement fichiers supprimés\nrécemment (MFT NTFS). 2-5 min.",
             active=False,
         )
         self._deep_btn = self._make_mode_card(

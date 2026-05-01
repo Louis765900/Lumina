@@ -68,9 +68,7 @@ class _DedupIndex:
         pos = bisect.bisect_right(self._starts, start)
         if pos > 0 and self._ends[pos - 1] > start:
             return True
-        if pos < len(self._starts) and self._starts[pos] < end:
-            return True
-        return False
+        return pos < len(self._starts) and self._starts[pos] < end
 
     def __len__(self) -> int:
         return len(self._starts)
@@ -122,14 +120,14 @@ class ScanWorker(QThread):
     error             = pyqtSignal(str)
 
     # Demo data is loaded lazily to keep demo code out of the production bundle.
-    # Access via self._SIM_FILES / self._PHASES in _run_simulation() only.
+    # Access via self._sim_files / self._phases in _run_simulation() only.
     @property
-    def _SIM_FILES(self):
+    def _sim_files(self):  # type: ignore[override]
         from app.workers._demo import SIM_FILES
         return SIM_FILES
 
     @property
-    def _PHASES(self):
+    def _phases(self):  # type: ignore[override]
         from app.workers._demo import PHASES
         return PHASES
 
@@ -202,9 +200,9 @@ class ScanWorker(QThread):
         self.msleep(500)
 
         used_names: set[str] = set()
-        phase_step = 80 // len(self._PHASES)
+        phase_step = 80 // len(self._phases)
 
-        for i, phase in enumerate(self._PHASES):
+        for i, phase in enumerate(self._phases):
             self._pause_event.wait()
             if self._stop_requested:
                 self.status_text.emit("Scan annulé par l'utilisateur.")
@@ -219,7 +217,7 @@ class ScanWorker(QThread):
                     used_names = {f["name"] for f in self._found_files}
 
                 available = [
-                    (n, e, s, q) for n, e, s, q in self._SIM_FILES
+                    (n, e, s, q) for n, e, s, q in self._sim_files
                     if f"{n}{e}" not in used_names
                 ]
                 to_add = available[: random.randint(1, 3)]
@@ -253,7 +251,7 @@ class ScanWorker(QThread):
             used_names = {f["name"] for f in self._found_files}
 
         pct = 82
-        for name, ext, size_kb, integrity in self._SIM_FILES:
+        for name, ext, size_kb, integrity in self._sim_files:
             self._pause_event.wait()
             if self._stop_requested:
                 return
@@ -480,7 +478,7 @@ class ScanWorker(QThread):
                             self.progress.emit(progress_map(pct))
 
                     _fs_pending: list[dict] = []
-                    _FS_BATCH = 100
+                    _fs_batch = 100
 
                     def _fs_file(info: dict) -> None:
                         self._pause_event.wait()
@@ -489,7 +487,7 @@ class ScanWorker(QThread):
                         with self._lock:
                             self._found_files.append(info)
                         _fs_pending.append(info)
-                        if len(_fs_pending) >= _FS_BATCH:
+                        if len(_fs_pending) >= _fs_batch:
                             self.files_batch_found.emit(list(_fs_pending))
                             _fs_pending.clear()
 

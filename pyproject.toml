@@ -46,6 +46,7 @@ ignore = [
     "E501",   # line too long (handled by formatter)
     "B008",   # do not perform function call in argument defaults
     "RUF012", # mutable class variables (PyQt signals are fine)
+    "N802",   # PyQt6 virtual method overrides must match Qt's camelCase API
 ]
 
 [tool.ruff.format]
