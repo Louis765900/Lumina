@@ -1,12 +1,11 @@
 """
-Lumina v2.0 — Fenêtre principale
-Fenêtre sans bordure (FramelessWindowHint), barre de titre draggable,
-feux tricolores macOS, sidebar de navigation, QStackedWidget pour les écrans,
-icône de barre des tâches système.
+Lumina — Fenêtre principale Windows 98
+Fenêtre sans bordure, barre de titre Win98 (gradient bleu, boutons carres),
+sidebar grise, QStackedWidget pour les écrans.
 """
 
 from PyQt6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QAction, QColor, QFont, QIcon, QPainter, QPixmap
+from PyQt6.QtGui import QAction, QColor, QFont, QIcon, QLinearGradient, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
@@ -25,31 +24,13 @@ from PyQt6.QtWidgets import (
 )
 
 from app.ui.palette import (
-    ACCENT as _ACCENT,
+    WIN98_NAVY as _NAVY,
 )
 from app.ui.palette import (
-    BG as _BG,
+    WIN98_TITLE1 as _TITLE1,
 )
 from app.ui.palette import (
-    BG2 as _BG2,
-)
-from app.ui.palette import (
-    BORDER as _BORDER,
-)
-from app.ui.palette import (
-    HOVER as _HOVER,
-)
-from app.ui.palette import (
-    MUTED as _MUTED,
-)
-from app.ui.palette import (
-    SIDEBAR as _SIDEBAR,
-)
-from app.ui.palette import (
-    SUB as _SUB,
-)
-from app.ui.palette import (
-    TEXT as _TEXT,
+    WIN98_TITLE2 as _TITLE2,
 )
 from app.ui.screen_home import HomeScreen
 from app.ui.screen_partitions import PartitionsScreen
@@ -70,47 +51,113 @@ IDX_TOOLS      = 6
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  Composants de la barre de titre
+#  Bouton de controle Win98 (minimiser / maximiser / fermer)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class _TrafficBtn(QPushButton):
-    """Un bouton rond macOS (12x12)."""
+class _Win98CtrlBtn(QPushButton):
+    """Bouton carre Win98 pour la barre de titre (17x15)."""
 
-    def __init__(self, color: str, symbol: str, parent=None):
-        super().__init__("", parent)
-        self._sym = symbol
-        self.setFixedSize(12, 12)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setStyleSheet(
-            f"QPushButton {{ background: {color}; border: none; border-radius: 6px;"
-            "  color: rgba(0,0,0,0.65); font-size: 7px; font-weight: 900; }}"
-        )
+    def __init__(self, symbol: str, parent=None):
+        super().__init__(symbol, parent)
+        self.setFixedSize(17, 15)
+        self.setCursor(Qt.CursorShape.ArrowCursor)
+        self._update_style(False)
 
-    def show_symbol(self, v: bool):
-        self.setText(self._sym if v else "")
+    def _update_style(self, pressed: bool):
+        if pressed:
+            ss = (
+                "QPushButton {"
+                "  background-color: #C0C0C0;"
+                "  color: #000000;"
+                "  font-size: 9px; font-weight: 700;"
+                "  font-family: 'Work Sans', 'Arial';"
+                "  border-top: 2px solid #808080;"
+                "  border-left: 2px solid #808080;"
+                "  border-bottom: 2px solid #FFFFFF;"
+                "  border-right: 2px solid #FFFFFF;"
+                "  padding-top: 2px; padding-left: 2px;"
+                "}"
+            )
+        else:
+            ss = (
+                "QPushButton {"
+                "  background-color: #C0C0C0;"
+                "  color: #000000;"
+                "  font-size: 9px; font-weight: 700;"
+                "  font-family: 'Work Sans', 'Arial';"
+                "  border-top: 2px solid #FFFFFF;"
+                "  border-left: 2px solid #FFFFFF;"
+                "  border-bottom: 2px solid #808080;"
+                "  border-right: 2px solid #808080;"
+                "}"
+                "QPushButton:hover {"
+                "  background-color: #D4D0C8;"
+                "}"
+            )
+        self.setStyleSheet(ss)
+
+    def mousePressEvent(self, e):
+        self._update_style(True)
+        super().mousePressEvent(e)
+
+    def mouseReleaseEvent(self, e):
+        self._update_style(False)
+        super().mouseReleaseEvent(e)
 
 
-class _TrafficLights(QWidget):
-    """Groupe de feux tricolores macOS (fermer / minimiser / maximiser)."""
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Barre de titre Win98
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TitleBar(QWidget):
+    """Barre de titre Win98 avec gradient bleu, icone, titre et 3 boutons carres."""
 
     def __init__(self, win: "MainWindow", parent=None):
         super().__init__(parent)
-        self._win = win
+        self._win      = win
+        self._drag_pos = None
+        self._active   = True
+
+        self.setFixedHeight(20)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         row = QHBoxLayout(self)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(8)
+        row.setContentsMargins(3, 2, 2, 2)
+        row.setSpacing(0)
 
-        self._close = _TrafficBtn("#FF5F57", "x")
-        self._min   = _TrafficBtn("#FEBC2E", "-")
-        self._zoom  = _TrafficBtn("#28C840", "+")
+        # Icone 16x16
+        self._icon_lbl = QLabel()
+        self._icon_lbl.setFixedSize(16, 16)
+        self._icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._icon_lbl.setStyleSheet("background: transparent; font-size: 11px;")
+        self._icon_lbl.setText("L")
+        row.addWidget(self._icon_lbl)
+        row.addSpacing(4)
 
-        self._close.clicked.connect(win.close)
-        self._min.clicked.connect(win.showMinimized)
-        self._zoom.clicked.connect(self._toggle_max)
+        # Titre
+        self._title_lbl = QLabel("Lumina Data Recovery")
+        self._title_lbl.setStyleSheet(
+            "color: #FFFFFF; font-size: 11px; font-weight: 700;"
+            "font-family: 'Work Sans', 'Arial';"
+            "background: transparent;"
+        )
+        row.addWidget(self._title_lbl)
+        row.addStretch()
 
-        for btn in (self._close, self._min, self._zoom):
-            row.addWidget(btn)
+        # Boutons de controle
+        self._min_btn   = _Win98CtrlBtn("_")
+        self._max_btn   = _Win98CtrlBtn("o")
+        self._close_btn = _Win98CtrlBtn("x")
+        self._min_btn.clicked.connect(win.showMinimized)
+        self._max_btn.clicked.connect(self._toggle_max)
+        self._close_btn.clicked.connect(win.close)
+
+        row.addSpacing(2)
+        row.addWidget(self._min_btn)
+        row.addSpacing(2)
+        row.addWidget(self._max_btn)
+        row.addSpacing(2)
+        row.addWidget(self._close_btn)
 
     def _toggle_max(self):
         if self._win.isMaximized():
@@ -118,74 +165,18 @@ class _TrafficLights(QWidget):
         else:
             self._win.showMaximized()
 
-    def enterEvent(self, e):
-        for b, _ in [(self._close, "x"), (self._min, "-"), (self._zoom, "+")]:
-            b.show_symbol(True)
-        super().enterEvent(e)
-
-    def leaveEvent(self, e):
-        for b in (self._close, self._min, self._zoom):
-            b.show_symbol(False)
-        super().leaveEvent(e)
-
-
-class TitleBar(QWidget):
-    """Barre de titre draggable avec feux tricolores et logo."""
-
-    def __init__(self, win: "MainWindow", parent=None):
-        super().__init__(parent)
-        self._win      = win
-        self._drag_pos = None
-
-        self.setFixedHeight(44)
-        self.setStyleSheet(f"background: transparent; border-bottom: 1px solid {_BORDER};")
-
-        row = QHBoxLayout(self)
-        row.setContentsMargins(20, 0, 20, 0)
-        row.setSpacing(0)
-
-        # Feux tricolores
-        self._lights = _TrafficLights(win)
-        row.addWidget(self._lights, alignment=Qt.AlignmentFlag.AlignVCenter)
-        row.addSpacing(18)
-
-        # Logo + titre
-        star = QLabel("✦")
-        star.setStyleSheet(
-            f"color: {_ACCENT}; font-size: 20px; font-weight: 900; background: transparent;"
-        )
-        title = QLabel("Lumina")
-        title.setStyleSheet(
-            f"color: {_TEXT}; font-size: 15px; font-weight: 700;"
-            "letter-spacing: -0.3px;"
-            "font-family: 'Inter', 'SF Pro Display', 'Segoe UI', Arial;"
-            " background: transparent;"
-        )
-        sub = QLabel("Data Recovery")
-        sub.setStyleSheet(
-            f"color: {_MUTED}; font-size: 10px; font-weight: 500;"
-            "letter-spacing: 0.8px;"
-            "font-family: 'Inter', 'Segoe UI', Arial; background: transparent;"
-        )
-
-        row.addWidget(star)
-        row.addSpacing(8)
-        row.addWidget(title)
-        row.addSpacing(10)
-        row.addWidget(sub, alignment=Qt.AlignmentFlag.AlignBottom)
-        row.addStretch()
-
-        # Badge "System Ready"
-        dot = QLabel()
-        dot.setFixedSize(7, 7)
-        dot.setStyleSheet("background: #34C759; border-radius: 4px;")
-        ready = QLabel("Système prêt")
-        ready.setStyleSheet(
-            f"color: {_MUTED}; font-size: 11px; background: transparent;"
-        )
-        row.addWidget(dot)
-        row.addSpacing(6)
-        row.addWidget(ready)
+    def paintEvent(self, e):
+        p = QPainter(self)
+        grad = QLinearGradient(0, 0, self.width(), 0)
+        if self._active:
+            grad.setColorAt(0, QColor(_TITLE1))
+            grad.setColorAt(1, QColor(_TITLE2))
+        else:
+            grad.setColorAt(0, QColor("#808080"))
+            grad.setColorAt(1, QColor("#C0C0C0"))
+        p.fillRect(self.rect(), grad)
+        p.end()
+        super().paintEvent(e)
 
     # Drag-to-move
     def mousePressEvent(self, e):
@@ -204,12 +195,12 @@ class TitleBar(QWidget):
 
     def mouseDoubleClickEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:
-            self._lights._toggle_max()
+            self._toggle_max()
         super().mouseDoubleClickEvent(e)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  Sidebar
+#  Sidebar Win98
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class NavItem(QWidget):
@@ -220,21 +211,20 @@ class NavItem(QWidget):
         self._idx    = idx
         self._active = False
 
-        self.setFixedHeight(36)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFixedHeight(22)
+        self.setCursor(Qt.CursorShape.ArrowCursor)
 
         row = QHBoxLayout(self)
-        row.setContentsMargins(12, 0, 12, 0)
-        row.setSpacing(10)
+        row.setContentsMargins(16, 0, 8, 0)
+        row.setSpacing(6)
 
         self._ico = QLabel(icon)
-        self._ico.setFixedWidth(20)
+        self._ico.setFixedWidth(16)
         self._ico.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._ico.setStyleSheet("font-size: 12px; background: transparent;")
 
         self._lbl = QLabel(label)
-        self._lbl.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
-        )
+        self._lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 
         row.addWidget(self._ico)
         row.addWidget(self._lbl)
@@ -247,31 +237,27 @@ class NavItem(QWidget):
     def _refresh(self):
         if self._active:
             self.setStyleSheet(
-                "NavItem { background: rgba(0,122,255,0.15);"
-                "  border-left: 2px solid #007AFF;"
-                "  border-top: 0px; border-right: 0px; border-bottom: 0px;"
-                "  border-radius: 10px; }"
+                "NavItem {"
+                "  background-color: #000080;"
+                "  border: 0px;"
+                "}"
             )
-            color, weight = _ACCENT, "600"
+            self._lbl.setStyleSheet(
+                "color: #FFFFFF; font-size: 11px; font-weight: 700;"
+                "font-family: 'Work Sans', 'Arial'; background: transparent;"
+            )
+            self._ico.setStyleSheet("font-size: 12px; color: #FFFFFF; background: transparent;")
         else:
-            self.setStyleSheet(
-                "NavItem { background: transparent; border-radius: 10px; }"
+            self.setStyleSheet("NavItem { background: transparent; border: 0px; }")
+            self._lbl.setStyleSheet(
+                "color: #000000; font-size: 11px; font-weight: 400;"
+                "font-family: 'Work Sans', 'Arial'; background: transparent;"
             )
-            color, weight = _SUB, "500"
-
-        self._ico.setStyleSheet(
-            f"font-size: 15px; color: {color}; background: transparent;"
-        )
-        self._lbl.setStyleSheet(
-            f"color: {color}; font-size: 13px; font-weight: {weight};"
-            "font-family: 'Inter', 'Segoe UI', Arial; background: transparent;"
-        )
+            self._ico.setStyleSheet("font-size: 12px; color: #000000; background: transparent;")
 
     def enterEvent(self, e):
         if not self._active:
-            self.setStyleSheet(
-                "NavItem { background: rgba(255,255,255,0.05); border-radius: 10px; }"
-            )
+            self.setStyleSheet("NavItem { background-color: #D4D0C8; border: 0px; }")
         super().enterEvent(e)
 
     def leaveEvent(self, e):
@@ -289,38 +275,39 @@ class Sidebar(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedWidth(240)
+        self.setFixedWidth(180)
         self.setStyleSheet(
-            f"Sidebar {{ background: {_SIDEBAR}; border-right: 1px solid {_BORDER}; }}"
+            "Sidebar {"
+            "  background-color: #C0C0C0;"
+            "  border-right: 2px solid #808080;"
+            "}"
         )
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(8, 14, 8, 12)
-        root.setSpacing(2)
+        root.setContentsMargins(0, 4, 0, 4)
+        root.setSpacing(0)
 
         self._items: list[NavItem] = []
 
         # Section Récupération
-        root.addWidget(self._section("Récupération"))
-        root.addSpacing(2)
+        root.addWidget(self._section("Recuperation"))
         for icon, label, idx in [
-            ("💾", "Disques & Emplacements", IDX_HOME),
-            ("💳", "Cartes SD & Externes",   IDX_SD),
+            ("💾", "Disques",      IDX_HOME),
+            ("💳", "Cartes SD",    IDX_SD),
         ]:
             item = NavItem(icon, label, idx)
             item.clicked.connect(self.nav_requested)
             self._items.append(item)
             root.addWidget(item)
 
-        root.addSpacing(18)
+        root.addSpacing(8)
 
         # Section Outils
         root.addWidget(self._section("Outils"))
-        root.addSpacing(2)
         for icon, label, idx in [
-            ("⚙",  "Gestion des partitions", IDX_PARTITIONS),
-            ("🔧", "Diagnostic disque",       IDX_REPAIR),
-            ("🛠",  "Outils avancés",          IDX_TOOLS),
+            ("⚙",  "Partitions",   IDX_PARTITIONS),
+            ("🔧", "Diagnostic",   IDX_REPAIR),
+            ("🛠",  "Outils avances", IDX_TOOLS),
         ]:
             item = NavItem(icon, label, idx)
             item.clicked.connect(self.nav_requested)
@@ -329,33 +316,33 @@ class Sidebar(QWidget):
 
         root.addStretch()
 
-        # Numéro de version
+        # Version
         ver = QLabel("Lumina v1.0.0")
         ver.setStyleSheet(
-            f"color: {_MUTED}; font-size: 10px;"
-            "font-family: 'Inter', 'Segoe UI', Arial; background: transparent; padding: 2px 12px;"
+            "color: #808080; font-size: 10px;"
+            "font-family: 'Work Sans', 'Arial'; background: transparent;"
+            "padding: 2px 8px;"
         )
         root.addWidget(ver)
 
     @staticmethod
     def _section(title: str) -> QLabel:
         lbl = QLabel(title.upper())
-        lbl.setContentsMargins(12, 4, 8, 2)
+        lbl.setContentsMargins(8, 4, 8, 2)
         lbl.setStyleSheet(
-            "color: #c1c6d7; font-size: 10px; font-weight: 700; letter-spacing: 1.2px;"
-            "font-family: 'Inter', 'Segoe UI', Arial; background: transparent;"
+            "color: #000080; font-size: 10px; font-weight: 700;"
+            "font-family: 'Work Sans', 'Arial'; background: transparent;"
         )
         return lbl
 
     def set_active(self, idx: int):
-        # SCAN et RESULTS restent en surbrillance HOME dans la sidebar
         active = IDX_HOME if idx in (IDX_SCAN, IDX_RESULTS) else idx
         for item in self._items:
             item.set_active(item._idx == active)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  Dialogue de choix du mode de scan
+#  Dialogue de choix du mode de scan (style Win98)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class _ScanModeDialog(QDialog):
@@ -364,114 +351,160 @@ class _ScanModeDialog(QDialog):
         super().__init__(parent)
         self._chosen = "deep"
         self.setModal(True)
-        self.setFixedSize(480, 310)
+        self.setFixedSize(400, 260)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-
-        card = QFrame()
-        card.setObjectName("ScanCard")
-        card.setStyleSheet(
-            "QFrame#ScanCard {"
-            "  background: #1A1B2E;"
-            f"  border: 1px solid {_BORDER};"
-            "  border-radius: 16px;"
+        # Window outer raised border
+        self.setStyleSheet(
+            "QDialog {"
+            "  background-color: #C0C0C0;"
+            "  border-top: 2px solid #FFFFFF;"
+            "  border-left: 2px solid #FFFFFF;"
+            "  border-bottom: 2px solid #808080;"
+            "  border-right: 2px solid #808080;"
             "}"
         )
-        lay = QVBoxLayout(card)
-        lay.setContentsMargins(28, 24, 28, 24)
-        lay.setSpacing(18)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(2, 2, 2, 2)
+        root.setSpacing(0)
+
+        # Title bar
+        self._drag_pos = None
+        title_bar = QWidget()
+        title_bar.setFixedHeight(20)
+        title_bar.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        title_bar.installEventFilter(self)
+        tb_row = QHBoxLayout(title_bar)
+        tb_row.setContentsMargins(4, 2, 2, 2)
+        tb_row.setSpacing(0)
 
         name = disk.get("name", "Disque")
-        title = QLabel(f"Mode de scan — {name}")
-        title.setStyleSheet(
-            f"color: {_TEXT}; font-size: 16px; font-weight: 700;"
-            "font-family: 'Inter', 'Segoe UI', Arial; background: transparent;"
+        tb_lbl = QLabel(f"Choisir le mode de scan - {name}")
+        tb_lbl.setStyleSheet(
+            "color: #FFFFFF; font-size: 11px; font-weight: 700;"
+            "font-family: 'Work Sans', Arial; background: transparent;"
         )
-        lay.addWidget(title)
+        tb_row.addWidget(tb_lbl)
+        tb_row.addStretch()
 
+        close_btn = _Win98CtrlBtn("x")
+        close_btn.clicked.connect(self.reject)
+        tb_row.addWidget(close_btn)
+
+        self._tb = title_bar
+        root.addWidget(title_bar)
+
+        # Content area
+        content = QWidget()
+        content_lay = QVBoxLayout(content)
+        content_lay.setContentsMargins(12, 8, 12, 8)
+        content_lay.setSpacing(10)
+
+        # Mode cards row
         modes_row = QHBoxLayout()
-        modes_row.setSpacing(14)
+        modes_row.setSpacing(8)
+
         self._quick_btn = self._make_mode_card(
-            "⚡", "Scan Rapide",
-            "Uniquement fichiers supprimés\nrécemment (MFT NTFS). 2-5 min.",
+            "Scan Rapide",
+            "Fichiers supprimes\nrecemment (MFT NTFS).\nDuree: 2-5 min.",
             active=False,
         )
         self._deep_btn = self._make_mode_card(
-            "🔬", "Scan Complet",
-            "Tous fichiers — photos, vidéos,\ndocs. Analyse complète par signature.",
+            "Scan Complet",
+            "Tous fichiers - photos,\nvideos, docs.\nAnalyse par signature.",
             active=True,
         )
         self._quick_btn.clicked.connect(lambda: self._select("quick"))
         self._deep_btn.clicked.connect(lambda: self._select("deep"))
         modes_row.addWidget(self._quick_btn)
         modes_row.addWidget(self._deep_btn)
-        lay.addLayout(modes_row)
+        content_lay.addLayout(modes_row)
 
+        # Note
+        note_frame = QFrame()
+        note_frame.setStyleSheet(
+            "QFrame {"
+            "  background-color: #FFFFFF;"
+            "  border-top: 2px solid #808080;"
+            "  border-left: 2px solid #808080;"
+            "  border-bottom: 2px solid #FFFFFF;"
+            "  border-right: 2px solid #FFFFFF;"
+            "}"
+        )
+        note_lay = QHBoxLayout(note_frame)
+        note_lay.setContentsMargins(6, 4, 6, 4)
         note = QLabel(
-            "💡 Scan Complet recommandé pour récupérer photos et vidéos perdues "
-            "depuis longtemps ou sur un disque FAT32/exFAT/ancien HDD."
+            "Recommande: Scan Complet pour recuperer photos et videos perdues depuis longtemps."
         )
         note.setWordWrap(True)
-        note.setStyleSheet(
-            f"color: {_SUB}; font-size: 11px; background: transparent;"
-            "font-family: 'Inter', 'Segoe UI', Arial;"
-        )
-        lay.addWidget(note)
+        note.setStyleSheet("font-size: 10px; color: #000000; background: transparent;")
+        note_lay.addWidget(note)
+        content_lay.addWidget(note_frame)
 
+        # Buttons row
         btns = QHBoxLayout()
         btns.addStretch()
 
         cancel = QPushButton("Annuler")
-        cancel.setFixedSize(90, 34)
-        cancel.setCursor(Qt.CursorShape.PointingHandCursor)
-        cancel.setStyleSheet(
-            f"QPushButton {{ color: {_SUB}; background: transparent;"
-            f"  border: 1px solid {_BORDER}; border-radius: 8px;"
-            "  font-size: 13px; font-weight: 500; }}"
-            f"QPushButton:hover {{ background: {_HOVER}; color: {_TEXT}; }}"
-        )
+        cancel.setFixedSize(80, 24)
+        cancel.setCursor(Qt.CursorShape.ArrowCursor)
         cancel.clicked.connect(self.reject)
 
-        start = QPushButton("Démarrer →")
-        start.setFixedSize(120, 34)
-        start.setCursor(Qt.CursorShape.PointingHandCursor)
-        start.setStyleSheet(
-            f"QPushButton {{ color: white; background: {_ACCENT};"
-            "  border: none; border-radius: 8px;"
-            "  font-size: 13px; font-weight: 700; }}"
-            "QPushButton:hover { background: #005FCC; }"
-        )
+        start = QPushButton("Demarrer")
+        start.setFixedSize(80, 24)
+        start.setCursor(Qt.CursorShape.ArrowCursor)
         start.clicked.connect(self.accept)
 
         btns.addWidget(cancel)
         btns.addSpacing(8)
         btns.addWidget(start)
-        lay.addLayout(btns)
+        content_lay.addLayout(btns)
 
-        root.addWidget(card)
+        root.addWidget(content)
 
-    def _make_mode_card(self, icon: str, title: str, desc: str, active: bool) -> QPushButton:
+    def eventFilter(self, obj, event):
+        from PyQt6.QtCore import QEvent
+        if obj is self._tb:
+            if event.type() == QEvent.Type.MouseButtonPress:
+                if event.button() == Qt.MouseButton.LeftButton:
+                    self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            elif event.type() == QEvent.Type.MouseMove:
+                if event.buttons() == Qt.MouseButton.LeftButton and self._drag_pos is not None:
+                    self.move(event.globalPosition().toPoint() - self._drag_pos)
+            elif event.type() == QEvent.Type.MouseButtonRelease:
+                self._drag_pos = None
+        return super().eventFilter(obj, event)
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        # Draw title bar gradient
+        grad = QLinearGradient(0, 0, self.width() - 4, 0)
+        grad.setColorAt(0, QColor(_TITLE1))
+        grad.setColorAt(1, QColor(_TITLE2))
+        p.fillRect(2, 2, self.width() - 4, 20, grad)
+        p.end()
+
+    def _make_mode_card(self, title: str, desc: str, active: bool) -> QPushButton:
         btn = QPushButton()
-        btn.setFixedSize(192, 96)
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setFixedSize(172, 100)
+        btn.setCursor(Qt.CursorShape.ArrowCursor)
 
         inner = QVBoxLayout(btn)
-        inner.setContentsMargins(14, 12, 14, 12)
+        inner.setContentsMargins(8, 6, 8, 6)
         inner.setSpacing(4)
 
-        head = QLabel(f"{icon}  {title}")
+        head = QLabel(title)
         head.setStyleSheet(
-            "color: #F1F5F9; font-size: 13px; font-weight: 700;"
-            "font-family: 'Inter'; background: transparent;"
+            "color: #000000; font-size: 11px; font-weight: 700;"
+            "font-family: 'Work Sans', Arial; background: transparent;"
         )
         body = QLabel(desc)
         body.setWordWrap(True)
         body.setStyleSheet(
-            "color: #64748B; font-size: 10px;"
-            "font-family: 'Inter'; background: transparent;"
+            "color: #404040; font-size: 10px;"
+            "font-family: 'Work Sans', Arial; background: transparent;"
         )
         inner.addWidget(head)
         inner.addWidget(body)
@@ -484,14 +517,28 @@ class _ScanModeDialog(QDialog):
     def _style_mode(btn: QPushButton, active: bool):
         if active:
             btn.setStyleSheet(
-                f"QPushButton {{ background: rgba(0,122,255,0.15);"
-                f"  border: 1.5px solid {_ACCENT}; border-radius: 12px; text-align: left; }}"
+                "QPushButton {"
+                "  background-color: #C0C0C0;"
+                "  border-top: 2px solid #808080;"
+                "  border-left: 2px solid #808080;"
+                "  border-bottom: 2px solid #FFFFFF;"
+                "  border-right: 2px solid #FFFFFF;"
+                "  text-align: left;"
+                "}"
             )
         else:
             btn.setStyleSheet(
-                "QPushButton { background: rgba(255,255,255,0.04);"
-                f"  border: 1px solid {_BORDER}; border-radius: 12px; text-align: left; }}"
-                "QPushButton:hover { background: rgba(255,255,255,0.08); }"
+                "QPushButton {"
+                "  background-color: #C0C0C0;"
+                "  border-top: 2px solid #FFFFFF;"
+                "  border-left: 2px solid #FFFFFF;"
+                "  border-bottom: 2px solid #808080;"
+                "  border-right: 2px solid #808080;"
+                "  text-align: left;"
+                "}"
+                "QPushButton:hover {"
+                "  background-color: #D4D0C8;"
+                "}"
             )
 
     def _select(self, mode: str):
@@ -504,7 +551,7 @@ class _ScanModeDialog(QDialog):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  Fenêtre principale
+#  Fenetre principale Win98
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class MainWindow(QMainWindow):
@@ -512,32 +559,40 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Lumina — Data Recovery")
-        self.setMinimumSize(960, 640)
-        self.resize(1240, 780)
+        self.setMinimumSize(800, 560)
+        self.resize(1040, 680)
 
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
-        # Widget central avec gradient de fond
+        # Widget central — silver base with raised outer bevel
         central = QWidget()
         central.setObjectName("LuminaCentral")
         central.setStyleSheet(
             "QWidget#LuminaCentral {"
-            "  background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
-            f"    stop:0 {_BG}, stop:1 {_BG2});"
-            "  border-radius: 12px;"
-            f"  border: 1px solid {_BORDER};"
+            "  background-color: #C0C0C0;"
+            "  border-top: 2px solid #FFFFFF;"
+            "  border-left: 2px solid #FFFFFF;"
+            "  border-bottom: 2px solid #808080;"
+            "  border-right: 2px solid #808080;"
             "}"
         )
         self.setCentralWidget(central)
 
         root = QVBoxLayout(central)
-        root.setContentsMargins(0, 0, 0, 0)
+        root.setContentsMargins(2, 2, 2, 2)
         root.setSpacing(0)
 
         # Barre de titre
         self._title_bar = TitleBar(self)
         root.addWidget(self._title_bar)
+
+        # Separateur sous titre
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFixedHeight(2)
+        sep.setStyleSheet("background-color: #808080; border: 0px;")
+        root.addWidget(sep)
 
         # Corps : sidebar + contenu
         body = QHBoxLayout()
@@ -548,13 +603,36 @@ class MainWindow(QMainWindow):
         self._sidebar.nav_requested.connect(self._on_nav)
         body.addWidget(self._sidebar)
 
+        # Separateur vertical
+        vsep = QFrame()
+        vsep.setFrameShape(QFrame.Shape.VLine)
+        vsep.setFixedWidth(2)
+        vsep.setStyleSheet("background-color: #808080; border: 0px;")
+        body.addWidget(vsep)
+
         self._stack = QStackedWidget()
-        self._stack.setStyleSheet("background: transparent;")
+        self._stack.setStyleSheet("QStackedWidget { background-color: #C0C0C0; }")
         body.addWidget(self._stack, stretch=1)
 
         root.addLayout(body, stretch=1)
 
-        # ── Créer les écrans ──────────────────────────────────────────────────
+        # Barre de statut
+        status_bar = QWidget()
+        status_bar.setFixedHeight(18)
+        status_bar.setStyleSheet("background-color: #C0C0C0; border-top: 1px solid #808080;")
+        sb_row = QHBoxLayout(status_bar)
+        sb_row.setContentsMargins(4, 0, 4, 0)
+        sb_row.setSpacing(0)
+        self._status_lbl = QLabel("Pret")
+        self._status_lbl.setStyleSheet(
+            "color: #000000; font-size: 10px; background: transparent;"
+            "font-family: 'Work Sans', Arial;"
+        )
+        sb_row.addWidget(self._status_lbl)
+        sb_row.addStretch()
+        root.addWidget(status_bar)
+
+        # ── Creer les ecrans ─────────────────────────────────────────────────
         self._home       = HomeScreen()
         self._scan       = ScanScreen()
         self._results    = ResultsScreen()
@@ -569,7 +647,7 @@ class MainWindow(QMainWindow):
         ):
             self._stack.addWidget(screen)
 
-        # ── Connexions de signaux ──────────────────────────────────────────────
+        # ── Connexions de signaux ─────────────────────────────────────────────
         self._home.disk_selected.connect(self._go_scan)
         self._home.history_scan_requested.connect(self._go_results)
         self._sd.disk_selected.connect(self._go_scan)
@@ -580,18 +658,17 @@ class MainWindow(QMainWindow):
         self.show_home()
         self._init_tray()
 
-    # ── Icône de barre des tâches ─────────────────────────────────────────────
+    # ── Icone de barre des taches ─────────────────────────────────────────────
 
     def _init_tray(self):
         self._tray = QSystemTrayIcon(self)
 
         pix = QPixmap(32, 32)
-        pix.fill(Qt.GlobalColor.transparent)
+        pix.fill(QColor(_NAVY))
         p = QPainter(pix)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setPen(QColor(_ACCENT))
-        p.setFont(QFont("Inter", 22, QFont.Weight.Bold))
-        p.drawText(pix.rect(), Qt.AlignmentFlag.AlignCenter, "✦")
+        p.setPen(QColor("#FFFFFF"))
+        p.setFont(QFont("Work Sans", 16, QFont.Weight.Bold))
+        p.drawText(pix.rect(), Qt.AlignmentFlag.AlignCenter, "L")
         p.end()
 
         self._tray.setIcon(QIcon(pix))
@@ -629,8 +706,8 @@ class MainWindow(QMainWindow):
             self.hide()
             self._tray.showMessage(
                 "Lumina",
-                "Analyse en cours en arrière-plan. "
-                "Utilisez « Quitter Lumina » dans la barre système pour arrêter.",
+                "Analyse en cours en arriere-plan. "
+                "Utilisez 'Quitter Lumina' dans la barre systeme pour arreter.",
                 QSystemTrayIcon.MessageIcon.Information,
                 4000,
             )
@@ -654,6 +731,7 @@ class MainWindow(QMainWindow):
 
     def show_home(self):
         self._sidebar.set_active(IDX_HOME)
+        self._status_lbl.setText("Pret")
         if self._stack.currentIndex() == IDX_HOME:
             self._home.refresh_disks()
             return
@@ -671,11 +749,13 @@ class MainWindow(QMainWindow):
         disk["scan_mode"] = dlg.chosen_mode()
         self._scan.start_scan(disk)
         self._sidebar.set_active(IDX_SCAN)
+        self._status_lbl.setText(f"Scan en cours : {disk.get('name', 'disque')}")
         self._fade_to(IDX_SCAN)
 
     def _go_results(self, files: list):
         self._results.load_results(files)
         self._sidebar.set_active(IDX_RESULTS)
+        self._status_lbl.setText(f"{len(files)} fichier(s) trouve(s)")
         self._fade_to(IDX_RESULTS)
 
     # ── Transition de fondu ───────────────────────────────────────────────────
@@ -684,7 +764,6 @@ class MainWindow(QMainWindow):
         if self._stack.currentIndex() == idx:
             return
 
-        # Nettoyer l'effet précédent pour éviter les fuites
         old = self._stack.graphicsEffect()
         if old:
             self._stack.setGraphicsEffect(None)

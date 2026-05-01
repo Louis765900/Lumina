@@ -1,27 +1,17 @@
 """
-Lumina v2.0 — Écran 1 : Scan en cours
-Anneau circulaire de progression, log de fichiers en temps réel,
-pause / reprise / annulation, ETA, chronomètre.
+Lumina — Ecran 1 : Scan en cours (style Windows 98)
+Barre de progression Win98, log de fichiers en temps reel,
+pause / reprise / annulation, ETA, chronometre.
 """
 
 import json
 import logging
-import math
-import random
 import time
 from collections import deque
 from pathlib import Path
 
-from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import (
-    QBrush,
-    QColor,
-    QConicalGradient,
-    QCursor,
-    QFont,
-    QPainter,
-    QPen,
-)
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QColor, QPainter
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -37,218 +27,81 @@ from PyQt6.QtWidgets import (
 from app.core.i18n import t
 from app.core.recovery import ensure_lumina_log
 from app.core.settings import is_demo_enabled
-from app.ui.palette import (
-    ACCENT as _ACCENT,
-)
-from app.ui.palette import (
-    ACCENT2 as _ACCENT2,
-)
-from app.ui.palette import (
-    BORDER as _BORDER,
-)
-from app.ui.palette import (
-    CARD as _CARD,
-)
-from app.ui.palette import (
-    ERR as _ERR,
-)
-from app.ui.palette import (
-    HOVER as _HOVER,
-)
-from app.ui.palette import (
-    MUTED as _MUTED,
-)
-from app.ui.palette import (
-    OK as _OK,
-)
-from app.ui.palette import (
-    OK_BG as _OK_BG,
-)
-from app.ui.palette import (
-    SUB as _SUB,
-)
-from app.ui.palette import (
-    TEXT as _TEXT,
-)
-from app.ui.palette import (
-    WARN as _WARN,
-)
 from app.workers.scan_worker import ScanWorker
 
-# Catégories de types pour le compteur live
+# Categories de types pour le compteur live
 _CAT_MAP: dict[str, set[str]] = {
     "Images":    {"JPG","JPEG","PNG","BMP","GIF","TIFF","WEBP","HEIC","HEIF","PSD","SVG",
                   "CR2","CR3","NEF","ARW","DNG","ORF","RW2","RAF","PEF","SRW","AI","EPS","INDD"},
-    "Vidéos":    {"MP4","MOV","MKV","AVI","FLV","WMV","MPG","M2TS","3GP","VOB","RM","MXF","MKA"},
+    "Videos":    {"MP4","MOV","MKV","AVI","FLV","WMV","MPG","M2TS","3GP","VOB","RM","MXF","MKA"},
     "Audio":     {"MP3","WAV","FLAC","AAC","OGG","WMA","M4A","AIFF","OPUS","APE","WV"},
     "Documents": {"PDF","DOC","DOCX","XLS","XLSX","PPT","PPTX","ODT","ODS","TXT",
                   "HTML","XML","RTF","EML","PST","VCF","ICS","DWG","WMF"},
     "Archives":  {"ZIP","RAR","7Z","GZ","BZ2","XZ","TAR","ISO","EPUB","CAB","SWF"},
 }
-_CAT_ICONS: dict[str, str] = {
-    "Images": "📷", "Vidéos": "🎬", "Audio": "🎵",
-    "Documents": "📄", "Archives": "📦", "Autres": "📁",
-}
 
-# Icônes par type de fichier
+# Icones par type de fichier (ASCII-friendly)
 _ICONS: dict[str, str] = {
-    "JPG": "🖼", "JPEG": "🖼", "PNG": "🎨", "BMP": "🖼",
-    "GIF": "🎭", "TIFF": "📷", "WEBP": "🖼", "HEIC": "📱", "PSD": "🎨",
-    "MP4": "🎬", "MOV": "🎬", "MKV": "🎬", "AVI": "🎬",
-    "FLV": "🎬", "WMV": "🎬", "MPG": "🎬",
-    "MP3": "🎵", "WAV": "🎵", "FLAC": "🎵", "AAC": "🎵", "OGG": "🎵",
-    "PDF": "📄", "DOC": "📝", "DOCX": "📝",
-    "XLS": "📊", "XLSX": "📊", "PPT": "📋", "PPTX": "📋",
-    "ZIP": "📦", "RAR": "📦", "7Z": "📦", "GZ": "📦",
-    "EXE": "⚙", "DLL": "⚙", "SQLITE": "🗄", "PST": "📧",
+    "JPG": "IMG", "JPEG": "IMG", "PNG": "IMG", "BMP": "IMG",
+    "GIF": "IMG", "TIFF": "IMG", "WEBP": "IMG", "HEIC": "IMG", "PSD": "IMG",
+    "MP4": "VID", "MOV": "VID", "MKV": "VID", "AVI": "VID",
+    "FLV": "VID", "WMV": "VID", "MPG": "VID",
+    "MP3": "AUD", "WAV": "AUD", "FLAC": "AUD", "AAC": "AUD", "OGG": "AUD",
+    "PDF": "DOC", "DOC": "DOC", "DOCX": "DOC",
+    "XLS": "XLS", "XLSX": "XLS", "PPT": "PPT", "PPTX": "PPT",
+    "ZIP": "ARC", "RAR": "ARC", "7Z": "ARC", "GZ": "ARC",
+    "EXE": "EXE", "DLL": "DLL", "SQLITE": "DB", "PST": "EML",
 }
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  Anneau de progression circulaire
+#  Barre de progression Win98 (segments bleus)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class CircularProgress(QWidget):
-    DIAMETER = 210
-    RING_W   = 14
+class _Win98ProgressBar(QWidget):
+    """Barre de progression Win98 segmentee."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._value       = 0
-        self._active      = False
-        self._paused      = False
-        self._pulse       = 0
-        self._particles: list[dict] = []
-
-        self.setFixedSize(self.DIAMETER, self.DIAMETER)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-
-        self._timer = QTimer(self)
-        self._timer.setInterval(33)   # ~30 fps
-        self._timer.timeout.connect(self._tick)
+        self._value   = 0
+        self._paused  = False
+        self.setFixedHeight(28)
+        self.setStyleSheet(
+            "background-color: #FFFFFF;"
+            "border-top: 2px solid #808080;"
+            "border-left: 2px solid #808080;"
+            "border-bottom: 2px solid #FFFFFF;"
+            "border-right: 2px solid #FFFFFF;"
+        )
 
     def set_value(self, v: int):
         self._value = max(0, min(100, v))
-        self.update()
-
-    def set_active(self, v: bool):
-        self._active = v
-        if v:
-            self._timer.start()
-        else:
-            self._timer.stop()
-            self._particles.clear()
         self.update()
 
     def set_paused(self, v: bool):
         self._paused = v
         self.update()
 
-    def _tick(self):
-        self._pulse = (self._pulse + 2) % 360
-
-        # Générer des particules au bout de l'arc
-        if self._active and not self._paused and self._value > 0:
-            tip_deg = 90.0 - self._value * 3.6
-            tip_rad = math.radians(tip_deg)
-            r_mid   = self.DIAMETER / 2 - self.RING_W / 2 - 4
-            cx = cy = self.DIAMETER / 2.0
-            sx = cx + r_mid * math.cos(tip_rad)
-            sy = cy - r_mid * math.sin(tip_rad)
-            if random.random() < 0.35:
-                angle = math.radians(tip_deg + random.uniform(-20, 20))
-                spd   = random.uniform(0.4, 1.5)
-                self._particles.append({
-                    "x": sx, "y": sy,
-                    "vx": spd * math.cos(angle),
-                    "vy": -spd * math.sin(angle),
-                    "alpha": random.randint(130, 210),
-                    "size":  random.uniform(1.8, 4.0),
-                    "color": random.choice((_ACCENT, _ACCENT2, "#BFD7FF")),
-                })
-
-        # Mettre à jour les particules
-        for pt in self._particles:
-            pt["x"]     += pt["vx"]
-            pt["y"]     += pt["vy"]
-            pt["alpha"] -= 7
-        self._particles = [pt for pt in self._particles if pt["alpha"] > 0]
-        self.update()
-
     def paintEvent(self, _):
         p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        d   = self.DIAMETER
-        rw  = self.RING_W
-        pad = rw // 2 + 6
-        arc = QRectF(pad, pad, d - 2 * pad, d - 2 * pad)
-        cx  = cy = d / 2.0
+        w = self.width()
+        h = self.height()
 
-        # Fond intérieur
-        p.setBrush(QBrush(QColor(10, 10, 22)))
-        p.setPen(Qt.PenStyle.NoPen)
-        inner_r = d / 2 - rw - 8
-        p.drawEllipse(QPointF(cx, cy), inner_r, inner_r)
+        # Background
+        p.fillRect(0, 0, w, h, QColor("#FFFFFF"))
 
-        # Piste de fond
-        p.setPen(QPen(QColor(255, 255, 255, 14), rw,
-                      Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-        p.drawArc(arc, 0, 360 * 16)
-
-        ring_col = _WARN if self._paused else _ACCENT
-
-        # Lueur (glow) si actif
-        if self._active and self._value > 0:
-            pa = int(6 + 5 * math.sin(math.radians(self._pulse)))
-            for grw, _ga in ((rw + 16, pa), (rw + 7, pa * 2)):
-                gpen = QPen(QColor(ring_col), grw,
-                            Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
-                gpen.setColor(QColor(ring_col))
-                p.setPen(gpen)
-                p.drawArc(arc, 90 * 16, int(-self._value * 360 * 16 / 100))
-
-        # Arc principal avec dégradé conique
         if self._value > 0:
-            c1 = QColor(_WARN if self._paused else _ACCENT)
-            c2 = QColor("#D97706" if self._paused else _ACCENT2)
-            cg = QConicalGradient(cx, cy, 90)
-            cg.setColorAt(0.00, c1)
-            cg.setColorAt(0.50, c2)
-            cg.setColorAt(1.00, c1)
-            p.setPen(QPen(QBrush(cg), rw,
-                          Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-            p.drawArc(arc, 90 * 16, int(-self._value * 360 * 16 / 100))
+            fill_w = int(w * self._value / 100)
+            color  = QColor("#808000") if self._paused else QColor("#000080")
 
-        # Particules
-        p.setPen(Qt.PenStyle.NoPen)
-        for pt in self._particles:
-            col = QColor(pt["color"])
-            col.setAlpha(int(pt["alpha"]))
-            p.setBrush(QBrush(col))
-            sz = pt["size"]
-            p.drawEllipse(QPointF(pt["x"], pt["y"]), sz / 2, sz / 2)
+            # Draw segments (each segment is 8px wide with 1px gap)
+            seg_w = 10
+            x = 0
+            while x < fill_w:
+                sw = min(seg_w - 1, fill_w - x)
+                p.fillRect(x, 1, sw, h - 2, color)
+                x += seg_w
 
-        # Pourcentage centré
-        p.setPen(QColor(_TEXT))
-        p.setFont(QFont("Inter", 36, QFont.Weight.Bold))
-        p.drawText(QRectF(0, cy - 36, d, 42), Qt.AlignmentFlag.AlignCenter, str(self._value))
-
-        # Signe « % »
-        fm   = p.fontMetrics()
-        tw   = fm.horizontalAdvance(str(self._value))
-        p.setFont(QFont("Inter", 15, QFont.Weight.Bold))
-        p.setPen(QColor(0, 122, 255, 200))
-        p.drawText(
-            QRectF(cx + tw / 2 + 2, cy - 26, 28, 28),
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-            "%",
-        )
-
-        # Label sous le chiffre
-        label = "EN PAUSE" if self._paused else "TRAITÉ"
-        p.setFont(QFont("Inter", 8, QFont.Weight.Bold))
-        p.setPen(QColor(_WARN if self._paused else _MUTED))
-        p.drawText(QRectF(0, cy + 10, d, 20), Qt.AlignmentFlag.AlignCenter, label)
         p.end()
 
 
@@ -259,38 +112,44 @@ class CircularProgress(QWidget):
 class _FileRow(QWidget):
     def __init__(self, icon: str, name: str, meta: str, integrity: int, parent=None):
         super().__init__(parent)
-        self.setFixedHeight(40)
+        self.setFixedHeight(20)
 
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(16, 0, 16, 0)
-        lay.setSpacing(14)
+        lay.setContentsMargins(4, 0, 4, 0)
+        lay.setSpacing(8)
 
-        ico = QLabel(icon)
-        ico.setStyleSheet("font-size: 18px; background: transparent;")
+        ico = QLabel(f"[{icon}]")
+        ico.setFixedWidth(36)
+        ico.setStyleSheet(
+            "color: #000080; font-size: 9px; font-weight: 700;"
+            "background: transparent; font-family: 'Work Sans', Arial;"
+        )
 
         nam = QLabel(name)
         nam.setStyleSheet(
-            f"color: {_TEXT}; font-size: 12px; font-weight: 500;"
-            "font-family: 'Inter'; background: transparent;"
+            "color: #000000; font-size: 10px;"
+            "font-family: 'Work Sans', Arial; background: transparent;"
         )
 
         meta_lbl = QLabel(meta)
         meta_lbl.setStyleSheet(
-            f"color: {_SUB}; font-size: 11px;"
-            "font-family: 'Inter'; background: transparent;"
+            "color: #404040; font-size: 10px;"
+            "font-family: 'Work Sans', Arial; background: transparent;"
         )
 
         if integrity >= 90:
-            sc, st = _OK,   "Excellent"
+            sc, st = "#008000", "OK"
         elif integrity >= 60:
-            sc, st = _ACCENT, "Partiel"
+            sc, st = "#000080", "Partiel"
         else:
-            sc, st = _WARN,  "Dégradé"
+            sc, st = "#808000", "Degrade"
 
         status = QLabel(st)
+        status.setFixedWidth(46)
+        status.setAlignment(Qt.AlignmentFlag.AlignRight)
         status.setStyleSheet(
-            f"color: {sc}; font-size: 11px; font-weight: 500;"
-            "font-family: 'Inter'; background: transparent;"
+            f"color: {sc}; font-size: 10px; font-weight: 700;"
+            "font-family: 'Work Sans', Arial; background: transparent;"
         )
 
         lay.addWidget(ico)
@@ -298,14 +157,11 @@ class _FileRow(QWidget):
         lay.addWidget(meta_lbl)
         lay.addWidget(status)
 
-        self.setStyleSheet(
-            f"QWidget {{ background: transparent; border-radius: 6px; }}"
-            f"QWidget:hover {{ background: {_HOVER}; }}"
-        )
+        self.setStyleSheet("QWidget { background: transparent; }")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  Écran de scan
+#  Ecran de scan Win98
 # ═══════════════════════════════════════════════════════════════════════════════
 
 ensure_lumina_log()
@@ -318,7 +174,7 @@ class ScanScreen(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setStyleSheet("background: transparent;")
+        self.setStyleSheet("background-color: #C0C0C0;")
         self._worker: ScanWorker | None = None
         self._disk: dict = {}
         self._found_count  = 0
@@ -327,7 +183,7 @@ class ScanScreen(QWidget):
         self._had_error    = False
         self._speed_buf: deque = deque()
         self._cat_counts: dict[str, int] = {
-            "Images": 0, "Vidéos": 0, "Audio": 0,
+            "Images": 0, "Videos": 0, "Audio": 0,
             "Documents": 0, "Archives": 0, "Autres": 0,
         }
 
@@ -336,213 +192,202 @@ class ScanScreen(QWidget):
         self._elapsed_timer.timeout.connect(self._update_elapsed)
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
+        outer.setContentsMargins(8, 8, 8, 8)
+        outer.setSpacing(6)
 
-        # ── Panneau haut : anneau + stats ──────────────────────────────────────
-        top = QWidget()
-        top.setStyleSheet("background: transparent;")
-        top_lay = QVBoxLayout(top)
-        top_lay.setContentsMargins(40, 14, 40, 14)
-        top_lay.setSpacing(0)
+        # ── En-tete ────────────────────────────────────────────────────────────
+        hdr_frame = QFrame()
+        hdr_frame.setFixedHeight(50)
+        hdr_frame.setStyleSheet(
+            "QFrame {"
+            "  background-color: #C0C0C0;"
+            "  border-top: 2px solid #FFFFFF;"
+            "  border-left: 2px solid #FFFFFF;"
+            "  border-bottom: 2px solid #808080;"
+            "  border-right: 2px solid #808080;"
+            "}"
+        )
+        hdr_lay = QHBoxLayout(hdr_frame)
+        hdr_lay.setContentsMargins(8, 4, 8, 4)
 
-        # En-tête
-        hdr = QHBoxLayout()
         left_col = QVBoxLayout()
-        left_col.setSpacing(4)
-        self._title    = QLabel("Analyse en cours…")
+        left_col.setSpacing(2)
+        self._title    = QLabel("Analyse en cours...")
         self._disk_lbl = QLabel("")
         self._title.setStyleSheet(
-            f"color: {_TEXT}; font-size: 22px; font-weight: 700;"
-            "font-family: 'Inter'; background: transparent;"
+            "color: #000000; font-size: 12px; font-weight: 700;"
+            "font-family: 'Work Sans', Arial; background: transparent;"
         )
         self._disk_lbl.setStyleSheet(
-            f"color: {_SUB}; font-size: 13px;"
-            "font-family: 'Inter'; background: transparent;"
+            "color: #404040; font-size: 10px;"
+            "font-family: 'Work Sans', Arial; background: transparent;"
         )
         left_col.addWidget(self._title)
         left_col.addWidget(self._disk_lbl)
-        hdr.addLayout(left_col)
-        hdr.addStretch()
+        hdr_lay.addLayout(left_col)
+        hdr_lay.addStretch()
 
-        self._pause_btn = QPushButton("⏸  PAUSE")
-        self._pause_btn.setFixedSize(100, 32)
-        self._pause_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self._pause_btn.setStyleSheet(
-            f"QPushButton {{ background: {_CARD}; border: 1px solid {_BORDER};"
-            f"  border-radius: 8px; color: {_TEXT}; font-size: 11px; font-weight: 600;"
-            f"  letter-spacing: 0.5px; }}"
-            f"QPushButton:hover {{ background: {_HOVER}; }}"
-            f"QPushButton:disabled {{ color: {_MUTED}; }}"
-        )
+        self._pause_btn = QPushButton("Pause")
+        self._pause_btn.setFixedSize(70, 24)
         self._pause_btn.clicked.connect(self._on_pause)
-        hdr.addWidget(self._pause_btn, alignment=Qt.AlignmentFlag.AlignTop)
-        top_lay.addLayout(hdr)
-        top_lay.addSpacing(8)
+        hdr_lay.addWidget(self._pause_btn)
 
-        # Anneau
-        self._ring = CircularProgress()
-        top_lay.addWidget(self._ring, alignment=Qt.AlignmentFlag.AlignHCenter)
-        top_lay.addSpacing(12)
+        self._cancel_btn = QPushButton("Annuler")
+        self._cancel_btn.setFixedSize(70, 24)
+        self._cancel_btn.clicked.connect(self._on_cancel)
+        hdr_lay.addSpacing(4)
+        hdr_lay.addWidget(self._cancel_btn)
+        outer.addWidget(hdr_frame)
 
-        # Message de statut
-        self._status_lbl = QLabel("Initialisation…")
-        self._status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # ── Barre de progression ───────────────────────────────────────────────
+        prog_frame = QFrame()
+        prog_frame.setStyleSheet("QFrame { background-color: #C0C0C0; border: 0px; }")
+        prog_lay = QVBoxLayout(prog_frame)
+        prog_lay.setContentsMargins(0, 0, 0, 0)
+        prog_lay.setSpacing(4)
+
+        self._prog_bar = _Win98ProgressBar()
+        prog_lay.addWidget(self._prog_bar)
+
+        prog_info = QHBoxLayout()
+        self._pct_lbl = QLabel("0%")
+        self._pct_lbl.setStyleSheet(
+            "color: #000000; font-size: 11px; font-weight: 700; background: transparent;"
+            "font-family: 'Work Sans', Arial;"
+        )
+        self._status_lbl = QLabel("Initialisation...")
         self._status_lbl.setStyleSheet(
-            f"color: {_ACCENT}; font-size: 12px;"
-            "font-family: 'SF Mono', Consolas, monospace; background: transparent;"
+            "color: #000080; font-size: 10px; background: transparent;"
+            "font-family: 'Work Sans', Arial;"
         )
-        top_lay.addWidget(self._status_lbl)
-        top_lay.addSpacing(4)
+        self._eta_lbl = QLabel("")
+        self._eta_lbl.setStyleSheet(
+            "color: #404040; font-size: 10px; background: transparent;"
+            "font-family: 'Work Sans', Arial;"
+        )
+        prog_info.addWidget(self._pct_lbl)
+        prog_info.addSpacing(8)
+        prog_info.addWidget(self._status_lbl, stretch=1)
+        prog_info.addWidget(self._eta_lbl)
+        prog_lay.addLayout(prog_info)
+        outer.addWidget(prog_frame)
 
-        # Bouton "Lancer le Deep Scan" — visible uniquement quand Quick Scan
-        # n'est pas disponible sur la source sélectionnée.
-        self._deep_scan_btn = QPushButton("🔍  Lancer le Scan Complet")
-        self._deep_scan_btn.setFixedSize(220, 34)
-        self._deep_scan_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self._deep_scan_btn.setStyleSheet(
-            f"QPushButton {{ background: {_ACCENT}; color: white; border: none;"
-            "  border-radius: 8px; font-size: 12px; font-weight: 700; }}"
-            "QPushButton:hover { background: #005FCC; }"
-        )
+        # ── Bouton "Lancer le Deep Scan" ───────────────────────────────────────
+        self._deep_scan_btn = QPushButton("Lancer le Scan Complet")
+        self._deep_scan_btn.setFixedHeight(24)
         self._deep_scan_btn.clicked.connect(self._on_switch_to_deep)
         self._deep_scan_btn.hide()
-        top_lay.addWidget(self._deep_scan_btn, alignment=Qt.AlignmentFlag.AlignHCenter)
-        top_lay.addSpacing(4)
+        outer.addWidget(self._deep_scan_btn)
 
-        # Badges de stats
-        stats_row = QHBoxLayout()
-        stats_row.setSpacing(0)
+        # ── Compteurs stats ────────────────────────────────────────────────────
+        stats_frame = QFrame()
+        stats_frame.setFixedHeight(28)
+        stats_frame.setStyleSheet(
+            "QFrame {"
+            "  background-color: #FFFFFF;"
+            "  border-top: 2px solid #808080;"
+            "  border-left: 2px solid #808080;"
+            "  border-bottom: 2px solid #FFFFFF;"
+            "  border-right: 2px solid #FFFFFF;"
+            "}"
+        )
+        stats_row = QHBoxLayout(stats_frame)
+        stats_row.setContentsMargins(6, 0, 6, 0)
+        stats_row.setSpacing(16)
 
-        self._counter_lbl = QLabel("✓  0 fichier détecté")
+        self._counter_lbl = QLabel("0 fichier detecte")
         self._counter_lbl.setStyleSheet(
-            f"color: {_OK}; font-size: 12px; font-weight: 500;"
-            f"background: {_OK_BG}; border: 1px solid rgba(52,199,89,0.2);"
-            "border-radius: 14px; padding: 4px 16px;"
+            "color: #000080; font-size: 10px; font-weight: 700; background: transparent;"
+            "font-family: 'Work Sans', Arial;"
         )
         self._speed_lbl = QLabel("")
         self._speed_lbl.setStyleSheet(
-            f"color: {_MUTED}; font-size: 11px; padding: 0 12px;"
+            "color: #404040; font-size: 10px; background: transparent;"
+            "font-family: 'Work Sans', Arial;"
         )
         self._elapsed_lbl = QLabel("")
         self._elapsed_lbl.setStyleSheet(
-            f"color: {_MUTED}; font-size: 11px; padding: 0 8px;"
+            "color: #404040; font-size: 10px; background: transparent;"
+            "font-family: 'Work Sans', Arial;"
         )
         self._bad_lbl = QLabel("")
         self._bad_lbl.setStyleSheet(
-            f"color: {_WARN}; font-size: 11px; padding: 0 8px;"
+            "color: #808000; font-size: 10px; background: transparent;"
+            "font-family: 'Work Sans', Arial;"
         )
 
+        stats_row.addWidget(self._counter_lbl)
+        stats_row.addWidget(self._speed_lbl)
+        stats_row.addWidget(self._elapsed_lbl)
+        stats_row.addWidget(self._bad_lbl)
         stats_row.addStretch()
-        for w in (self._counter_lbl, self._speed_lbl, self._elapsed_lbl, self._bad_lbl):
-            stats_row.addWidget(w)
-        stats_row.addStretch()
-        top_lay.addLayout(stats_row)
-        top_lay.addSpacing(6)
+        outer.addWidget(stats_frame)
 
-        # ETA
-        self._eta_lbl = QLabel("")
-        self._eta_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._eta_lbl.setStyleSheet(
-            f"color: {_MUTED}; font-size: 11px; font-weight: 600;"
-            "letter-spacing: 0.8px; background: transparent;"
-        )
-        top_lay.addWidget(self._eta_lbl)
-        top_lay.addSpacing(10)
+        # ── Compteurs par categorie ────────────────────────────────────────────
+        cat_frame = QFrame()
+        cat_frame.setFixedHeight(22)
+        cat_frame.setStyleSheet("QFrame { background-color: #C0C0C0; border: 0px; }")
+        cat_row = QHBoxLayout(cat_frame)
+        cat_row.setContentsMargins(0, 0, 0, 0)
+        cat_row.setSpacing(12)
 
-        # Compteurs par catégorie (style Recoverit)
-        cat_row = QHBoxLayout()
-        cat_row.setSpacing(6)
-        cat_row.addStretch()
         self._cat_lbls: dict[str, QLabel] = {}
-        for cat in ("Images", "Vidéos", "Audio", "Documents", "Archives", "Autres"):
-            icon = _CAT_ICONS[cat]
-            lbl = QLabel(f"{icon} {cat}: 0")
+        for cat in ("Images", "Videos", "Audio", "Documents", "Archives", "Autres"):
+            lbl = QLabel(f"{cat}: 0")
             lbl.setStyleSheet(
-                f"color: {_MUTED}; font-size: 10px; font-weight: 500;"
-                f"background: {_CARD}; border: 1px solid {_BORDER};"
-                "border-radius: 10px; padding: 3px 10px; font-family: 'Inter';"
+                "color: #808080; font-size: 10px; background: transparent;"
+                "font-family: 'Work Sans', Arial;"
             )
             self._cat_lbls[cat] = lbl
             cat_row.addWidget(lbl)
         cat_row.addStretch()
-        top_lay.addLayout(cat_row)
-        top_lay.addSpacing(4)
+        outer.addWidget(cat_frame)
 
-        outer.addWidget(top)
-
-        # ── Panneau bas : log en temps réel ────────────────────────────────────
-        log_wrap = QWidget()
-        log_main = QVBoxLayout(log_wrap)
-        log_main.setContentsMargins(40, 0, 40, 40)
-
+        # ── Log en temps reel ──────────────────────────────────────────────────
         log_frame = QFrame()
         log_frame.setStyleSheet(
-            f"QFrame {{ background: {_CARD}; border: 1px solid {_BORDER}; border-radius: 14px; }}"
+            "QFrame {"
+            "  background-color: #FFFFFF;"
+            "  border-top: 2px solid #808080;"
+            "  border-left: 2px solid #808080;"
+            "  border-bottom: 2px solid #FFFFFF;"
+            "  border-right: 2px solid #FFFFFF;"
+            "}"
         )
         log_col = QVBoxLayout(log_frame)
         log_col.setContentsMargins(0, 0, 0, 0)
         log_col.setSpacing(0)
 
-        # En-tête du log
+        # En-tete du log
         log_hdr = QWidget()
-        log_hdr.setFixedHeight(44)
+        log_hdr.setFixedHeight(20)
         log_hdr.setStyleSheet(
-            "background: rgba(255,255,255,0.02);"
-            "border-bottom: 1px solid rgba(255,255,255,0.05);"
-            "border-top-left-radius: 14px; border-top-right-radius: 14px;"
+            "background-color: #000080; border: 0px;"
         )
         hdr_l = QHBoxLayout(log_hdr)
-        hdr_l.setContentsMargins(22, 0, 22, 0)
-
-        log_title = QLabel("FICHIERS DÉTECTÉS EN TEMPS RÉEL")
+        hdr_l.setContentsMargins(6, 0, 6, 0)
+        log_title = QLabel("Fichiers detectes en temps reel")
         log_title.setStyleSheet(
-            f"color: {_SUB}; font-size: 10px; font-weight: 700;"
-            "letter-spacing: 1px; font-family: 'Inter'; border: none; background: transparent;"
-        )
-        live_tag = QLabel("LIVE")
-        live_tag.setStyleSheet(
-            f"color: {_ACCENT}; font-size: 9px; font-weight: 700;"
-            "background: rgba(0,122,255,0.12); padding: 2px 7px;"
-            "border-radius: 4px; border: none;"
+            "color: #FFFFFF; font-size: 10px; font-weight: 700;"
+            "font-family: 'Work Sans', Arial; background: transparent;"
         )
         hdr_l.addWidget(log_title)
         hdr_l.addStretch()
-        hdr_l.addWidget(live_tag)
         log_col.addWidget(log_hdr)
 
-        # Liste des fichiers
         self._log_list = QListWidget()
         self._log_list.setStyleSheet(
-            "QListWidget { background: transparent; border: none; outline: none; padding: 6px; }"
-            "QListWidget::item { background: transparent; border-radius: 6px; }"
+            "QListWidget {"
+            "  background-color: #FFFFFF; border: none; outline: none;"
+            "  font-family: 'Work Sans', Arial;"
+            "}"
+            "QListWidget::item { background: transparent; border: 0px; }"
+            "QListWidget::item:selected { background-color: #000080; color: #FFFFFF; }"
         )
         self._log_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
         log_col.addWidget(self._log_list, stretch=1)
 
-        # Barre du bas avec bouton annuler
-        foot = QWidget()
-        foot.setFixedHeight(44)
-        foot.setStyleSheet(
-            "border-top: 1px solid rgba(255,255,255,0.05);"
-            "border-bottom-left-radius: 14px; border-bottom-right-radius: 14px;"
-        )
-        foot_l = QHBoxLayout(foot)
-        foot_l.setContentsMargins(0, 0, 0, 0)
-        self._cancel_btn = QPushButton("✕  Annuler le scan")
-        self._cancel_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self._cancel_btn.setStyleSheet(
-            f"QPushButton {{ color: {_MUTED}; font-size: 11px; font-weight: 600;"
-            f"  letter-spacing: 0.8px; background: transparent; border: none; }}"
-            f"QPushButton:hover {{ color: {_ERR}; }}"
-            f"QPushButton:disabled {{ color: {_MUTED}; opacity: 0.5; }}"
-        )
-        self._cancel_btn.clicked.connect(self._on_cancel)
-        foot_l.addWidget(self._cancel_btn, alignment=Qt.AlignmentFlag.AlignCenter)
-        log_col.addWidget(foot)
-
-        log_main.addWidget(log_frame)
-        outer.addWidget(log_wrap, stretch=1)
+        outer.addWidget(log_frame, stretch=1)
 
     # ── API publique ──────────────────────────────────────────────────────────
 
@@ -557,36 +402,33 @@ class ScanScreen(QWidget):
         self._deep_scan_btn.hide()
         self._cat_counts = {k: 0 for k in self._cat_counts}
         for cat, lbl in self._cat_lbls.items():
-            icon = _CAT_ICONS[cat]
-            lbl.setText(f"{icon} {cat}: 0")
+            lbl.setText(f"{cat}: 0")
             lbl.setStyleSheet(
-                f"color: {_MUTED}; font-size: 10px; font-weight: 500;"
-                f"background: {_CARD}; border: 1px solid {_BORDER};"
-                "border-radius: 10px; padding: 3px 10px; font-family: 'Inter';"
+                "color: #808080; font-size: 10px; background: transparent;"
+                "font-family: 'Work Sans', Arial;"
             )
 
-        self._ring.set_value(0)
-        self._ring.set_active(True)
-        self._ring.set_paused(False)
+        self._prog_bar.set_value(0)
+        self._prog_bar.set_paused(False)
+        self._pct_lbl.setText("0%")
 
-        self._status_lbl.setText("Initialisation…")
-        self._counter_lbl.setText("✓  0 fichier détecté")
-        self._eta_lbl.setText("ESTIMATION DU TEMPS…")
+        self._status_lbl.setText("Initialisation...")
+        self._counter_lbl.setText("0 fichier detecte")
+        self._eta_lbl.setText("")
         self._speed_lbl.setText("")
         self._elapsed_lbl.setText("")
         self._bad_lbl.setText("")
         self._cancel_btn.setEnabled(True)
         self._pause_btn.setEnabled(True)
-        self._pause_btn.setText("⏸  PAUSE")
+        self._pause_btn.setText("Pause")
 
         mode = disk.get("scan_mode", "deep")
         mode_lbl = "Scan Rapide" if mode == "quick" else "Scan Complet"
-        self._title.setText(f"{mode_lbl} en cours…")
+        self._title.setText(f"{mode_lbl} en cours...")
         dev  = disk.get("device", "")
         size = disk.get("size_gb", 0)
-        self._disk_lbl.setText(f"{dev}  ·  {size} Go  ·  {mode_lbl}")
+        self._disk_lbl.setText(f"{dev}  |  {size} Go  |  {mode_lbl}")
 
-        # Arrêter l'éventuel worker précédent sans bloquer l'UI
         if self._worker:
             self._detach_worker(self._worker)
             self._worker = None
@@ -597,13 +439,10 @@ class ScanScreen(QWidget):
             self._pause_btn.setEnabled(False)
             return
 
-        # Checkpoint resume: propose reloading an interrupted deep scan.
         preloaded: list[dict] = []
         if mode == "deep":
             preloaded = self._maybe_resume_checkpoint(disk)
 
-        # Development-only demo path. Quick scan is metadata-only and must not
-        # route to the legacy simulation engine.
         simulate = mode == "demo" and is_demo_enabled()
         self._worker = ScanWorker(
             disk,
@@ -621,20 +460,14 @@ class ScanScreen(QWidget):
     # ── Checkpoint resume ─────────────────────────────────────────────────────
 
     def _maybe_resume_checkpoint(self, disk: dict) -> list[dict]:
-        """Detect a previous checkpoint for this device and offer to reload it.
-
-        Returns the list of preloaded files if the user accepts, or [] otherwise.
-        """
         checkpoint_path = Path("logs") / "scan_checkpoint.json"
         if not checkpoint_path.exists():
             return []
         try:
             raw = json.loads(checkpoint_path.read_text(encoding="utf-8"))
-            # Checkpoint is a flat list of file dicts written by _save_checkpoint.
             files = raw if isinstance(raw, list) else raw.get("files", [])
             if not files:
                 return []
-            # Only resume if the first file matches the current device.
             if files[0].get("device", "") != disk.get("device", ""):
                 return []
             file_count = len(files)
@@ -642,31 +475,23 @@ class ScanScreen(QWidget):
             return []
 
         dlg = QMessageBox(self)
-        dlg.setWindowTitle("Scan interrompu détecté")
+        dlg.setWindowTitle("Scan interrompu detecte")
         dlg.setText(
-            f"Un scan précédent sur {disk.get('device', '?')} a été interrompu.\n"
-            f"{file_count} fichier(s) avaient déjà été trouvés.\n\n"
-            "Reprendre à partir de ces résultats partiels ?"
+            f"Un scan precedent sur {disk.get('device', '?')} a ete interrompu.\n"
+            f"{file_count} fichier(s) avaient deja ete trouves.\n\n"
+            "Reprendre a partir de ces resultats partiels ?"
         )
         dlg.setStandardButtons(
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         dlg.setDefaultButton(QMessageBox.StandardButton.Yes)
-        dlg.setStyleSheet(
-            f"QMessageBox {{ background: #1A1B2E; color: {_TEXT}; }}"
-            f"QLabel {{ color: {_TEXT}; }}"
-            f"QPushButton {{ background: rgba(255,255,255,0.08); color: {_TEXT};"
-            "border: 1px solid rgba(255,255,255,0.12); border-radius: 6px;"
-            "padding: 6px 18px; }"
-            f"QPushButton:hover {{ background: rgba(0,122,255,0.25); }}"
-        )
         if dlg.exec() != QMessageBox.StandardButton.Yes:
             return []
 
         self._found_count = file_count
         plural = "s" if file_count > 1 else ""
         self._counter_lbl.setText(
-            f"✓  {file_count} fichier{plural} pré-chargé{plural} (reprise)"
+            f"{file_count} fichier{plural} pre-charge{plural} (reprise)"
         )
         _log.info(
             "Checkpoint resume: %d files pre-loaded from %s",
@@ -677,7 +502,8 @@ class ScanScreen(QWidget):
     # ── Slots du worker ───────────────────────────────────────────────────────
 
     def _on_progress(self, pct: int):
-        self._ring.set_value(pct)
+        self._prog_bar.set_value(pct)
+        self._pct_lbl.setText(f"{pct}%")
         self._update_eta(pct)
 
     def _on_status(self, text: str):
@@ -685,18 +511,20 @@ class ScanScreen(QWidget):
         txt_low = text.lower()
         if "illisible" in txt_low or "sector" in txt_low or "bad" in txt_low:
             self._bad_sectors += 1
-            self._bad_lbl.setText(f"·  ⚠ {self._bad_sectors} secteur(s) illisible(s)")
+            self._bad_lbl.setText(f"Secteurs: {self._bad_sectors} illisible(s)")
         if text in (t("scan.quick_unavailable"), t("scan.quick_few_results")):
             device = self._disk.get("device", "?")
             _log.info(
-                "Quick Scan insuffisant sur %s, proposition Deep Scan affichée.", device
+                "Quick Scan insuffisant sur %s, proposition Deep Scan affichee.", device
             )
             self._deep_scan_btn.show()
 
     def _on_batch(self, batch: list):
         self._found_count += len(batch)
         plural = "s" if self._found_count > 1 else ""
-        self._counter_lbl.setText(f"✓  {self._found_count} fichier{plural} détecté{plural}")
+        self._counter_lbl.setText(
+            f"{self._found_count} fichier{plural} detecte{plural}"
+        )
 
         for info in batch:
             ftype = info.get("type", "").upper()
@@ -710,12 +538,10 @@ class ScanScreen(QWidget):
         for cat, lbl in self._cat_lbls.items():
             n = self._cat_counts.get(cat, 0)
             if n > 0:
-                icon = _CAT_ICONS[cat]
-                lbl.setText(f"{icon} {cat}: {n}")
+                lbl.setText(f"{cat}: {n}")
                 lbl.setStyleSheet(
-                    f"color: {_TEXT}; font-size: 10px; font-weight: 600;"
-                    "background: rgba(0,122,255,0.1); border: 1px solid rgba(0,122,255,0.3);"
-                    "border-radius: 10px; padding: 3px 10px; font-family: 'Inter';"
+                    "color: #000080; font-size: 10px; font-weight: 700; background: transparent;"
+                    "font-family: 'Work Sans', Arial;"
                 )
 
         for info in batch:
@@ -725,10 +551,10 @@ class ScanScreen(QWidget):
             integrity  = info.get("integrity", 60)
             size_str   = (
                 f"{size_kb / 1024:.1f} Mo" if size_kb >= 1024
-                else f"{size_kb} Ko" if size_kb else "—"
+                else f"{size_kb} Ko" if size_kb else "-"
             )
-            icon = _ICONS.get(ext, "📁")
-            meta = f"{ext}  ·  {size_str}"
+            icon = _ICONS.get(ext, "FIL")
+            meta = f"{ext} | {size_str}"
 
             item = QListWidgetItem(self._log_list)
             row  = _FileRow(icon, name, meta, integrity)
@@ -736,7 +562,6 @@ class ScanScreen(QWidget):
             self._log_list.addItem(item)
             self._log_list.setItemWidget(item, row)
 
-        # Limiter à 800 entrées
         while self._log_list.count() > 800:
             self._log_list.takeItem(0)
 
@@ -746,64 +571,60 @@ class ScanScreen(QWidget):
         if self._had_error:
             return
         self._elapsed_timer.stop()
-        self._ring.set_active(False)
-        self._ring.set_value(100)
+        self._prog_bar.set_value(100)
+        self._pct_lbl.setText("100%")
         self._cancel_btn.setEnabled(False)
         self._pause_btn.setEnabled(False)
-        self._title.setText("Analyse terminée")
+        self._title.setText("Analyse terminee")
         self._eta_lbl.setText("")
         self.scan_finished.emit(files)
 
     def _on_error(self, msg: str):
         self._had_error = True
         self._elapsed_timer.stop()
-        self._ring.set_active(False)
         self._status_lbl.setText(f"Erreur : {msg}")
         self._title.setText("Erreur d'analyse")
         self._eta_lbl.setText("")
         self._cancel_btn.setEnabled(False)
         self._pause_btn.setEnabled(False)
 
-    # ── Contrôles pause / annuler ─────────────────────────────────────────────
+    # ── Controles pause / annuler ─────────────────────────────────────────────
 
     def _on_pause(self):
         if not self._worker:
             return
         if self._worker.is_paused():
             self._worker.resume()
-            self._ring.set_paused(False)
-            self._pause_btn.setText("⏸  PAUSE")
+            self._prog_bar.set_paused(False)
+            self._pause_btn.setText("Pause")
             self._elapsed_timer.start()
         else:
             self._worker.pause()
-            self._ring.set_paused(True)
-            self._pause_btn.setText("▶  REPRENDRE")
+            self._prog_bar.set_paused(True)
+            self._pause_btn.setText("Reprendre")
             self._elapsed_timer.stop()
 
     def _on_switch_to_deep(self):
-        """Restart current scan in Deep Scan mode without returning to HomeScreen."""
         self._disk["scan_mode"] = "deep"
         self._deep_scan_btn.hide()
         self.start_scan(self._disk)
 
     def _on_cancel(self):
         self._elapsed_timer.stop()
-        self._ring.set_active(False)
-        self._ring.set_paused(False)
+        self._prog_bar.set_paused(False)
         self._eta_lbl.setText("")
         if self._worker:
             self._detach_worker(self._worker)
             self._worker = None
         self.scan_cancelled.emit()
 
-    # ── Déconnexion propre sans bloquer l'UI ─────────────────────────────────
+    # ── Deconnexion propre sans bloquer l'UI ─────────────────────────────────
 
     def is_scanning(self) -> bool:
         return self._worker is not None and self._worker.isRunning()
 
     @staticmethod
     def _detach_worker(worker):
-        """Déconnecte tous les signaux et demande l'arrêt sans wait()."""
         try:
             worker.progress.disconnect()
             worker.status_text.disconnect()
@@ -813,18 +634,17 @@ class ScanScreen(QWidget):
         except RuntimeError:
             pass
         worker.stop()
-        # Le thread finit en arrière-plan ; deleteLater() libère la mémoire
         worker.finished.connect(worker.deleteLater)
 
-    # ── ETA + chronomètre ─────────────────────────────────────────────────────
+    # ── ETA + chronometre ─────────────────────────────────────────────────────
 
     def _update_elapsed(self):
         elapsed = int(time.monotonic() - self._start_time)
         if elapsed < 60:
-            self._elapsed_lbl.setText(f"·  {elapsed}s")
+            self._elapsed_lbl.setText(f"Duree: {elapsed}s")
         else:
             m, s = divmod(elapsed, 60)
-            self._elapsed_lbl.setText(f"·  {m}m {s:02d}s")
+            self._elapsed_lbl.setText(f"Duree: {m}m{s:02d}s")
 
     def _update_eta(self, pct: int):
         now = time.monotonic()
@@ -834,7 +654,7 @@ class ScanScreen(QWidget):
             self._speed_buf.popleft()
 
         if pct >= 100:
-            self._eta_lbl.setText("FINALISATION…")
+            self._eta_lbl.setText("Finalisation...")
             return
         if len(self._speed_buf) < 3 or pct <= 0:
             return
@@ -845,20 +665,20 @@ class ScanScreen(QWidget):
         if dt < 1.0 or p1 <= p0:
             return
 
-        speed = (p1 - p0) / dt          # % par seconde
+        speed = (p1 - p0) / dt
         remaining = 100 - p1
         if speed > 0 and remaining > 0:
             eta_s = int(remaining / speed)
             if eta_s < 86400:
                 self._eta_lbl.setText(self._fmt_eta(eta_s))
-        self._speed_lbl.setText(f"·  {speed:.1f}%/s")
+        self._speed_lbl.setText(f"{speed:.1f}%/s")
 
     @staticmethod
     def _fmt_eta(seconds: int) -> str:
         if seconds < 60:
-            return f"ENVIRON {seconds}S RESTANTES"
+            return f"Reste: {seconds}s"
         if seconds < 3600:
             m, s = divmod(seconds, 60)
-            return f"ENVIRON {m}MIN {s:02d}S RESTANTES"
+            return f"Reste: {m}min{s:02d}s"
         h, rem = divmod(seconds, 3600)
-        return f"ENVIRON {h}H {rem // 60:02d}MIN RESTANTES"
+        return f"Reste: {h}h{rem // 60:02d}min"

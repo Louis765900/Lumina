@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QCursor
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -22,23 +21,6 @@ from PyQt6.QtWidgets import (
 )
 
 from app.core.settings import load_settings, save_settings, validate_settings
-from app.ui.palette import (
-    BG2 as _BG,
-)
-from app.ui.palette import (
-    MUTED as _MUTED,
-)
-from app.ui.palette import (
-    SUB as _SUB,
-)
-from app.ui.palette import (
-    TEXT as _TEXT,
-)
-
-# Wizard-specific overrides: solid/opaque values for a modal dialog context
-_CARD   = "#1A1B2E"
-_BORDER = "rgba(255,255,255,0.10)"
-_HOVER  = "rgba(255,255,255,0.06)"
 
 
 def needs_setup(settings: Mapping[str, Any]) -> bool:
@@ -53,55 +35,60 @@ class SetupWizard(QDialog):
         self._initial = validate_settings(settings)
         self.setModal(True)
         self.setWindowTitle("Configuration Lumina")
-        self.setMinimumWidth(560)
+        self.setMinimumWidth(480)
         self.setStyleSheet(
-            f"QDialog {{ background: {_BG}; }}"
-            "QLabel { font-family: 'Inter', 'Segoe UI', Arial; }"
-            "QComboBox, QLineEdit {"
-            f"  background: rgba(255,255,255,0.04); color: {_TEXT};"
-            f"  border: 1px solid {_BORDER}; border-radius: 8px;"
-            "  padding: 7px 10px; font-size: 12px;"
+            "QDialog { background-color: #C0C0C0; }"
+            "QLabel { font-family: 'Work Sans', Arial; background: transparent; }"
+            "QLineEdit {"
+            "  background-color: #FFFFFF; color: #000000;"
+            "  border-top: 2px solid #808080; border-left: 2px solid #808080;"
+            "  border-bottom: 2px solid #FFFFFF; border-right: 2px solid #FFFFFF;"
+            "  padding: 3px 6px; font-size: 11px; font-family: 'Work Sans', Arial;"
             "}"
-            "QCheckBox { color: #E2E8F0; font-size: 12px; }"
+            "QCheckBox { color: #000000; font-size: 11px; font-family: 'Work Sans', Arial; }"
         )
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
 
         card = QFrame()
-        card.setStyleSheet(
-            f"QFrame {{ background: {_CARD}; border: 1px solid {_BORDER};"
-            " border-radius: 16px; }}"
-        )
+        card.setStyleSheet("QFrame { background-color: #C0C0C0; }")
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(28, 24, 28, 24)
-        layout.setSpacing(16)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(10)
 
         title = QLabel("Bienvenue dans Lumina")
-        title.setStyleSheet(f"color: {_TEXT}; font-size: 22px; font-weight: 800;")
+        title.setStyleSheet("color: #000000; font-size: 16px; font-weight: 800;")
         subtitle = QLabel(
-            "Configurez les options essentielles avant votre première récupération."
+            "Configurez les options essentielles avant votre premiere recuperation."
         )
         subtitle.setWordWrap(True)
-        subtitle.setStyleSheet(f"color: {_SUB}; font-size: 12px;")
+        subtitle.setStyleSheet("color: #404040; font-size: 11px;")
         layout.addWidget(title)
         layout.addWidget(subtitle)
 
+        sep = QFrame()
+        sep.setFixedHeight(2)
+        sep.setStyleSheet(
+            "border-top: 1px solid #808080; border-bottom: 1px solid #FFFFFF;"
+            "border-left: none; border-right: none;"
+        )
+        layout.addWidget(sep)
+
         layout.addWidget(self._field_label("Langue"))
         self.language_combo = QComboBox()
-        self.language_combo.addItem("Français", "fr")
+        self.language_combo.addItem("Francais", "fr")
         self.language_combo.addItem("English", "en")
         self._set_combo_value(self.language_combo, self._initial["language"])
         layout.addWidget(self.language_combo)
 
-        layout.addWidget(self._field_label("Dossier de récupération par défaut"))
+        layout.addWidget(self._field_label("Dossier de recuperation par defaut"))
         dir_row = QHBoxLayout()
-        dir_row.setSpacing(8)
+        dir_row.setSpacing(6)
         self.recovery_dir_edit = QLineEdit(str(self._initial["default_recovery_dir"]))
         browse_btn = QPushButton("Parcourir")
-        browse_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        browse_btn.setFixedWidth(96)
-        browse_btn.setStyleSheet(self._secondary_button_style())
+        browse_btn.setCursor(Qt.CursorShape.ArrowCursor)
+        browse_btn.setFixedWidth(80)
         browse_btn.clicked.connect(self._browse_recovery_dir)
         dir_row.addWidget(self.recovery_dir_edit, stretch=1)
         dir_row.addWidget(browse_btn)
@@ -116,22 +103,32 @@ class SetupWizard(QDialog):
         layout.addWidget(self.engine_combo)
 
         self.prefer_image_check = QCheckBox(
-            "Toujours privilégier une image disque avant un scan profond"
+            "Toujours privilegier une image disque avant un scan profond"
         )
         self.prefer_image_check.setChecked(bool(self._initial["prefer_image_first"]))
         layout.addWidget(self.prefer_image_check)
 
+        sep2 = QFrame()
+        sep2.setFixedHeight(2)
+        sep2.setStyleSheet(
+            "border-top: 1px solid #808080; border-bottom: 1px solid #FFFFFF;"
+            "border-left: none; border-right: none;"
+        )
+        layout.addWidget(sep2)
+
         disclaimer = QLabel(
-            "Avertissement récupération\n"
-            "- Ne récupérez jamais vers le disque source.\n"
-            "- La récupération n'est jamais garantie.\n"
-            "- Si les données sont importantes, créez d'abord une image disque."
+            "Avertissement recuperation\n"
+            "- Ne recuperez jamais vers le disque source.\n"
+            "- La recuperation n'est jamais garantie.\n"
+            "- Si les donnees sont importantes, creez d'abord une image disque."
         )
         disclaimer.setWordWrap(True)
         disclaimer.setStyleSheet(
-            "color: #FDE68A; font-size: 12px; line-height: 1.5;"
-            "background: rgba(245,158,11,0.10); border: 1px solid rgba(245,158,11,0.25);"
-            "border-radius: 10px; padding: 12px;"
+            "color: #000000; font-size: 11px;"
+            "background-color: #FFFFE0;"
+            "border-top: 2px solid #808080; border-left: 2px solid #808080;"
+            "border-bottom: 2px solid #FFFFFF; border-right: 2px solid #FFFFFF;"
+            "padding: 8px;"
         )
         layout.addWidget(disclaimer)
 
@@ -140,23 +137,24 @@ class SetupWizard(QDialog):
         self.disclaimer_check.toggled.connect(self._refresh_start_enabled)
         layout.addWidget(self.disclaimer_check)
 
+        sep3 = QFrame()
+        sep3.setFixedHeight(2)
+        sep3.setStyleSheet(
+            "border-top: 1px solid #808080; border-bottom: 1px solid #FFFFFF;"
+            "border-left: none; border-right: none;"
+        )
+        layout.addWidget(sep3)
+
         actions = QHBoxLayout()
         actions.addStretch()
         quit_btn = QPushButton("Quitter")
-        quit_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        quit_btn.setFixedSize(92, 34)
-        quit_btn.setStyleSheet(self._secondary_button_style())
+        quit_btn.setCursor(Qt.CursorShape.ArrowCursor)
+        quit_btn.setFixedSize(80, 26)
         quit_btn.clicked.connect(self.reject)
 
         self.start_btn = QPushButton("Continuer")
-        self.start_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.start_btn.setFixedSize(118, 34)
-        self.start_btn.setStyleSheet(
-            "QPushButton { background: #007AFF; color: white; border: none;"
-            " border-radius: 8px; font-weight: 700; }"
-            "QPushButton:hover { background: #005FCC; }"
-            "QPushButton:disabled { background: rgba(100,116,139,0.35); color: #94A3B8; }"
-        )
+        self.start_btn.setCursor(Qt.CursorShape.ArrowCursor)
+        self.start_btn.setFixedSize(100, 26)
         self.start_btn.clicked.connect(self.accept)
         actions.addWidget(quit_btn)
         actions.addWidget(self.start_btn)
@@ -169,17 +167,10 @@ class SetupWizard(QDialog):
     def _field_label(text: str) -> QLabel:
         label = QLabel(text.upper())
         label.setStyleSheet(
-            f"color: {_MUTED}; font-size: 10px; font-weight: 800; letter-spacing: 1px;"
+            "color: #000000; font-size: 10px; font-weight: 800; letter-spacing: 1px;"
+            "background: transparent;"
         )
         return label
-
-    @staticmethod
-    def _secondary_button_style() -> str:
-        return (
-            f"QPushButton {{ background: rgba(255,255,255,0.04); color: {_SUB};"
-            f" border: 1px solid {_BORDER}; border-radius: 8px; font-weight: 600; }}"
-            f"QPushButton:hover {{ background: {_HOVER}; color: {_TEXT}; }}"
-        )
 
     @staticmethod
     def _set_combo_value(combo: QComboBox, value: str) -> None:
@@ -189,7 +180,7 @@ class SetupWizard(QDialog):
     def _browse_recovery_dir(self) -> None:
         selected = QFileDialog.getExistingDirectory(
             self,
-            "Choisir le dossier de récupération",
+            "Choisir le dossier de recuperation",
             self.recovery_dir_edit.text() or str(Path.home()),
         )
         if selected:
@@ -203,7 +194,7 @@ class SetupWizard(QDialog):
             QMessageBox.warning(
                 self,
                 "Avertissement requis",
-                "Vous devez accepter l'avertissement de récupération pour continuer.",
+                "Vous devez accepter l'avertissement de recuperation pour continuer.",
             )
             return
         super().accept()

@@ -1,13 +1,12 @@
 """
-Lumina v2.0 — Écran 5 : Diagnostic disque
+Lumina — Ecran 5 : Diagnostic disque (style Windows 98)
 Informations sur les partitions, lancement de CHKDSK et SFC depuis l'UI,
-sans dépendance à une API externe.
+sans dependance a une API externe.
 """
 
 import subprocess
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QCursor
 from PyQt6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -23,54 +22,30 @@ from PyQt6.QtWidgets import (
 
 from app.core.disk_detector import DiskDetector
 from app.ui.palette import (
-    ACCENT as _ACCENT,
-)
-from app.ui.palette import (
-    BORDER as _BORDER,
-)
-from app.ui.palette import (
-    CARD as _CARD,
-)
-from app.ui.palette import (
     ERR as _ERR,
 )
 from app.ui.palette import (
-    MUTED as _MUTED,
-)
-from app.ui.palette import (
     OK as _OK,
-)
-from app.ui.palette import (
-    SUB as _SUB,
-)
-from app.ui.palette import (
-    TEXT as _TEXT,
 )
 from app.ui.palette import (
     WARN as _WARN,
 )
 
 
-def _fmt_gb(n: int) -> str:
-    return f"{n / (1024**3):.1f} Go"
-
-
 def _section_hdr(title: str) -> QWidget:
     w = QWidget()
-    w.setFixedHeight(28)
+    w.setFixedHeight(24)
+    w.setStyleSheet("background-color: #C0C0C0;")
     row = QHBoxLayout(w)
-    row.setContentsMargins(0, 0, 0, 0)
-    row.setSpacing(12)
+    row.setContentsMargins(0, 4, 0, 0)
+    row.setSpacing(8)
     lbl = QLabel(title.upper())
     lbl.setStyleSheet(
-        f"color: {_MUTED}; font-size: 10px; font-weight: 700; letter-spacing: 1.2px;"
-        "font-family: 'Inter'; background: transparent;"
+        "color: #000000; font-size: 10px; font-weight: 700;"
+        "font-family: 'Work Sans', Arial; background: transparent;"
     )
-    line = QFrame()
-    line.setFixedHeight(1)
-    line.setStyleSheet(f"background: {_BORDER}; border: none;")
     row.addWidget(lbl)
-    row.addWidget(line, stretch=1)
+    row.addStretch()
     return w
 
 
@@ -80,7 +55,7 @@ def _section_hdr(title: str) -> QWidget:
 
 class _CmdWorker(QThread):
     output  = pyqtSignal(str)
-    done    = pyqtSignal(int)   # code de retour
+    done    = pyqtSignal(int)
 
     def __init__(self, cmd: list[str], parent=None):
         super().__init__(parent)
@@ -111,34 +86,30 @@ class _CmdWorker(QThread):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class _StatCard(QFrame):
-    def __init__(self, icon: str, label: str, value: str, color: str = "#94A3B8", parent=None):
+    def __init__(self, label: str, value: str, color: str = "#000000", parent=None):
         super().__init__(parent)
-        self.setFixedHeight(72)
+        self.setFixedHeight(56)
         self.setStyleSheet(
-            f"_StatCard {{ background: {_CARD}; border: 1px solid {_BORDER}; border-radius: 10px; }}"
+            "_StatCard {"
+            "  background-color: #C0C0C0;"
+            "  border-top: 2px solid #FFFFFF; border-left: 2px solid #FFFFFF;"
+            "  border-bottom: 2px solid #808080; border-right: 2px solid #808080;"
+            "}"
         )
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(16, 12, 16, 12)
-        lay.setSpacing(14)
-
-        ico = QLabel(icon)
-        ico.setFixedSize(34, 34)
-        ico.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        ico.setStyleSheet(
-            "font-size: 18px; background: rgba(0,122,255,0.1); border-radius: 7px;"
-        )
-        lay.addWidget(ico)
+        lay.setContentsMargins(10, 8, 10, 8)
 
         col = QVBoxLayout()
-        col.setSpacing(3)
+        col.setSpacing(2)
         lbl_w = QLabel(label)
         lbl_w.setStyleSheet(
-            f"color: {_MUTED}; font-size: 11px; font-family: 'Inter'; background: transparent;"
+            "color: #808080; font-size: 10px; font-weight: 700;"
+            "font-family: 'Work Sans', Arial; background: transparent;"
         )
         val_w = QLabel(value)
         val_w.setStyleSheet(
-            f"color: {color}; font-size: 14px; font-weight: 700;"
-            "font-family: 'Inter'; background: transparent;"
+            f"color: {color}; font-size: 13px; font-weight: 700;"
+            "font-family: 'Work Sans', Arial; background: transparent;"
         )
         col.addWidget(lbl_w)
         col.addWidget(val_w)
@@ -146,53 +117,51 @@ class _StatCard(QFrame):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  Écran de diagnostic
+#  Ecran de diagnostic
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class RepairScreen(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setStyleSheet("background: transparent;")
+        self.setStyleSheet("background-color: #C0C0C0;")
         self._worker: _CmdWorker | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # ── En-tête ───────────────────────────────────────────────────────────
+        # ── En-tete ───────────────────────────────────────────────────────────
         hdr = QWidget()
-        hdr.setFixedHeight(100)
-        hdr.setStyleSheet("background: transparent;")
+        hdr.setFixedHeight(40)
+        hdr.setStyleSheet(
+            "background-color: #C0C0C0; border-bottom: 2px solid #808080;"
+        )
         hr = QHBoxLayout(hdr)
-        hr.setContentsMargins(40, 20, 40, 20)
-        col = QVBoxLayout()
-        col.setSpacing(6)
+        hr.setContentsMargins(8, 4, 8, 4)
         title = QLabel("Diagnostic disque")
         title.setStyleSheet(
-            f"color: {_TEXT}; font-size: 22px; font-weight: 700; font-family: 'Inter';"
+            "color: #000000; font-size: 12px; font-weight: 700;"
+            "font-family: 'Work Sans', Arial; background: transparent;"
         )
-        sub = QLabel("Analysez la santé de vos disques et lancez des outils de réparation.")
-        sub.setStyleSheet(f"color: {_SUB}; font-size: 13px; font-family: 'Inter';")
-        col.addWidget(title)
-        col.addWidget(sub)
-        hr.addLayout(col)
+        hr.addWidget(title)
+        hr.addStretch()
         root.addWidget(hdr)
 
         # ── Zone principale scrollable ────────────────────────────────────────
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        scroll.setStyleSheet("QScrollArea { background-color: #C0C0C0; border: none; }")
 
         cw = QWidget()
-        cw.setStyleSheet("background: transparent;")
+        cw.setStyleSheet("background-color: #C0C0C0;")
         lay = QVBoxLayout(cw)
-        lay.setContentsMargins(40, 0, 40, 40)
-        lay.setSpacing(20)
+        lay.setContentsMargins(12, 12, 12, 12)
+        lay.setSpacing(10)
         lay.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        # ── Sélecteur de disque ───────────────────────────────────────────────
-        lay.addWidget(_section_hdr("Sélectionner un disque"))
+        # ── Selecteur de disque ───────────────────────────────────────────────
+        lay.addWidget(_section_hdr("Selectionner un disque"))
 
         sel_row = QHBoxLayout()
         self._disk_combo = QComboBox()
@@ -200,16 +169,11 @@ class RepairScreen(QWidget):
         self._disks: list[dict] = []
         self._load_disks()
         sel_row.addWidget(self._disk_combo)
-        sel_row.addSpacing(12)
+        sel_row.addSpacing(8)
 
-        analyze_btn = QPushButton("Analyser →")
-        analyze_btn.setFixedSize(120, 34)
-        analyze_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        analyze_btn.setStyleSheet(
-            f"QPushButton {{ background: {_ACCENT}; color: white; border: none;"
-            "  border-radius: 8px; font-size: 13px; font-weight: 700; }}"
-            "QPushButton:hover { background: #005FCC; }"
-        )
+        analyze_btn = QPushButton("Analyser")
+        analyze_btn.setFixedSize(90, 26)
+        analyze_btn.setCursor(Qt.CursorShape.ArrowCursor)
         analyze_btn.clicked.connect(self._analyze)
         sel_row.addWidget(analyze_btn)
         sel_row.addStretch()
@@ -218,52 +182,50 @@ class RepairScreen(QWidget):
         # ── Stats ─────────────────────────────────────────────────────────────
         lay.addWidget(_section_hdr("Informations du disque"))
         self._stats_container = QWidget()
-        self._stats_container.setStyleSheet("background: transparent;")
+        self._stats_container.setStyleSheet("background-color: #C0C0C0;")
         self._stats_lay = QHBoxLayout(self._stats_container)
         self._stats_lay.setContentsMargins(0, 0, 0, 0)
-        self._stats_lay.setSpacing(12)
+        self._stats_lay.setSpacing(8)
         self._stats_lay.addStretch()
         lay.addWidget(self._stats_container)
 
-        # ── Outils de réparation ─────────────────────────────────────────────
-        lay.addWidget(_section_hdr("Outils de réparation"))
+        # ── Outils de reparation ─────────────────────────────────────────────
+        lay.addWidget(_section_hdr("Outils de reparation"))
 
         tools_grid = QHBoxLayout()
-        tools_grid.setSpacing(12)
+        tools_grid.setSpacing(8)
 
-        self._chkdsk_btn = self._tool_btn("🔍", "CHKDSK /scan", "Vérification rapide du système de fichiers.")
+        self._chkdsk_btn = self._tool_btn("CHKDSK /scan", "Verification rapide du systeme de fichiers.")
         self._chkdsk_btn.clicked.connect(self._run_chkdsk)
         tools_grid.addWidget(self._chkdsk_btn)
 
-        # SFC — avec sélecteur de mode
         sfc_col = QVBoxLayout()
-        sfc_col.setSpacing(6)
-        self._sfc_btn = self._tool_btn("🛡", "SFC", "Vérification ou réparation des fichiers système.")
+        sfc_col.setSpacing(4)
+        self._sfc_btn = self._tool_btn("SFC", "Verification ou reparation des fichiers systeme.")
         self._sfc_btn.clicked.connect(self._run_sfc)
         self._sfc_combo = QComboBox()
-        self._sfc_combo.addItem("Réparer (/scannow)",        "scannow")
-        self._sfc_combo.addItem("Vérifier seul (/verifyonly)", "verifyonly")
-        self._sfc_combo.setFixedWidth(220)
+        self._sfc_combo.addItem("Reparer (/scannow)",        "scannow")
+        self._sfc_combo.addItem("Verifier seul (/verifyonly)", "verifyonly")
+        self._sfc_combo.setFixedWidth(200)
         self._sfc_combo.setToolTip(
-            "/scannow : répare les fichiers corrompus\n"
-            "/verifyonly : vérifie sans modifier"
+            "/scannow : repare les fichiers corrompus\n"
+            "/verifyonly : verifie sans modifier"
         )
         sfc_col.addWidget(self._sfc_btn)
         sfc_col.addWidget(self._sfc_combo)
         tools_grid.addLayout(sfc_col)
 
-        # DISM — avec sélecteur CheckHealth / RestoreHealth
         dism_col = QVBoxLayout()
-        dism_col.setSpacing(6)
-        self._dism_btn = self._tool_btn("🔧", "DISM", "Contrôle ou réparation de l'image Windows.")
+        dism_col.setSpacing(4)
+        self._dism_btn = self._tool_btn("DISM", "Controle ou reparation de l'image Windows.")
         self._dism_btn.clicked.connect(self._run_dism)
         self._dism_combo = QComboBox()
-        self._dism_combo.addItem("Vérification (/CheckHealth)",   "CheckHealth")
-        self._dism_combo.addItem("Réparation (/RestoreHealth)",   "RestoreHealth")
-        self._dism_combo.setFixedWidth(220)
+        self._dism_combo.addItem("Verification (/CheckHealth)",   "CheckHealth")
+        self._dism_combo.addItem("Reparation (/RestoreHealth)",   "RestoreHealth")
+        self._dism_combo.setFixedWidth(200)
         self._dism_combo.setToolTip(
-            "/CheckHealth : vérification rapide, hors ligne\n"
-            "/RestoreHealth : répare via Windows Update (connexion internet requise)"
+            "/CheckHealth : verification rapide, hors ligne\n"
+            "/RestoreHealth : repare via Windows Update (connexion internet requise)"
         )
         dism_col.addWidget(self._dism_btn)
         dism_col.addWidget(self._dism_combo)
@@ -277,10 +239,18 @@ class RepairScreen(QWidget):
 
         self._console = QTextEdit()
         self._console.setReadOnly(True)
-        self._console.setFixedHeight(220)
+        self._console.setFixedHeight(200)
+        self._console.setStyleSheet(
+            "QTextEdit {"
+            "  background-color: #FFFFFF; color: #000000;"
+            "  border-top: 2px solid #808080; border-left: 2px solid #808080;"
+            "  border-bottom: 2px solid #FFFFFF; border-right: 2px solid #FFFFFF;"
+            "  font-family: 'Courier New', monospace; font-size: 10px;"
+            "}"
+        )
         self._console.setPlaceholderText(
-            "La sortie des commandes s'affichera ici…\n"
-            "Sélectionnez un disque et cliquez sur un outil pour commencer."
+            "La sortie des commandes s'affichera ici...\n"
+            "Selectionnez un disque et cliquez sur un outil pour commencer."
         )
         lay.addWidget(self._console)
 
@@ -290,28 +260,35 @@ class RepairScreen(QWidget):
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
-    def _tool_btn(self, icon: str, title: str, desc: str) -> QPushButton:
+    def _tool_btn(self, title: str, desc: str) -> QPushButton:
         btn = QPushButton()
-        btn.setFixedSize(220, 72)
-        btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        btn.setFixedSize(200, 60)
+        btn.setCursor(Qt.CursorShape.ArrowCursor)
         btn.setStyleSheet(
-            f"QPushButton {{ background: {_CARD}; border: 1px solid {_BORDER};"
-            "  border-radius: 12px; text-align: left; }}"
-            f"QPushButton:hover {{ background: rgba(255,255,255,0.08); border-color: rgba(0,122,255,0.4); }}"
+            "QPushButton {"
+            "  background-color: #C0C0C0; text-align: left;"
+            "  border-top: 2px solid #FFFFFF; border-left: 2px solid #FFFFFF;"
+            "  border-bottom: 2px solid #808080; border-right: 2px solid #808080;"
+            "}"
+            "QPushButton:pressed {"
+            "  border-top: 2px solid #808080; border-left: 2px solid #808080;"
+            "  border-bottom: 2px solid #FFFFFF; border-right: 2px solid #FFFFFF;"
+            "}"
         )
         inner = QVBoxLayout(btn)
-        inner.setContentsMargins(16, 10, 16, 10)
-        inner.setSpacing(4)
+        inner.setContentsMargins(10, 8, 10, 8)
+        inner.setSpacing(3)
 
-        head = QLabel(f"{icon}  {title}")
+        head = QLabel(title)
         head.setStyleSheet(
-            f"color: {_TEXT}; font-size: 12px; font-weight: 700;"
-            "font-family: 'Inter'; background: transparent;"
+            "color: #000000; font-size: 11px; font-weight: 700;"
+            "font-family: 'Work Sans', Arial; background: transparent;"
         )
         body = QLabel(desc)
         body.setWordWrap(True)
         body.setStyleSheet(
-            f"color: {_MUTED}; font-size: 10px; font-family: 'Inter'; background: transparent;"
+            "color: #404040; font-size: 10px;"
+            "font-family: 'Work Sans', Arial; background: transparent;"
         )
         inner.addWidget(head)
         inner.addWidget(body)
@@ -345,30 +322,29 @@ class RepairScreen(QWidget):
         pct = (used / total * 100) if total > 0 else 0
         pct_col = _ERR if pct > 90 else (_WARN if pct > 75 else _OK)
 
-        # Vider et reconstruire le conteneur de stats
-        while self._stats_lay.count() > 1:   # garder le stretch final
+        while self._stats_lay.count() > 1:
             item = self._stats_lay.takeAt(0)
             if w := item.widget():
                 w.deleteLater()
 
         data = [
-            ("💾", "Périphérique",  device,            _TEXT),
-            ("📊", "Espace total",  f"{total:.1f} Go",  _TEXT),
-            ("✅", "Espace libre",  f"{free:.1f} Go",   _OK),
-            ("📈", "Utilisation",   f"{pct:.0f}%",      pct_col),
+            ("Peripherique",  device,             "#000000"),
+            ("Espace total",  f"{total:.1f} Go",  "#000000"),
+            ("Espace libre",  f"{free:.1f} Go",   _OK),
+            ("Utilisation",   f"{pct:.0f}%",      pct_col),
         ]
-        for i, (icon, label, value, color) in enumerate(data):
-            sc = _StatCard(icon, label, value, color)
+        for i, (label, value, color) in enumerate(data):
+            sc = _StatCard(label, value, color)
             self._stats_lay.insertWidget(i, sc)
 
         self._console.setPlainText(
-            f"Disque analysé : {disk.get('name','?')}\n"
-            f"Périphérique   : {device}\n"
+            f"Disque analyse : {disk.get('name','?')}\n"
+            f"Peripherique   : {device}\n"
             f"Taille totale  : {total:.1f} Go\n"
-            f"Espace utilisé : {used:.1f} Go ({pct:.0f}%)\n"
+            f"Espace utilise : {used:.1f} Go ({pct:.0f}%)\n"
             f"Espace libre   : {free:.1f} Go\n"
-            f"Modèle/FS      : {fstype}\n\n"
-            "Sélectionnez un outil ci-dessous pour lancer une analyse approfondie."
+            f"Modele/FS      : {fstype}\n\n"
+            "Selectionnez un outil ci-dessous pour lancer une analyse approfondie."
         )
 
     def _run_chkdsk(self):
@@ -390,8 +366,8 @@ class RepairScreen(QWidget):
             reply = QMessageBox.warning(
                 self,
                 "DISM RestoreHealth",
-                "Cette opération peut prendre plusieurs minutes\n"
-                "et nécessite une connexion internet active.\n\n"
+                "Cette operation peut prendre plusieurs minutes\n"
+                "et necessite une connexion internet active.\n\n"
                 "Continuer ?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
@@ -402,9 +378,9 @@ class RepairScreen(QWidget):
 
     def _run_cmd(self, cmd: list[str]):
         if self._worker and self._worker.isRunning():
-            return   # commande déjà en cours
+            return
 
-        self._console.setPlainText(f"Exécution : {' '.join(cmd)}\n{'─'*60}\n")
+        self._console.setPlainText(f"Execution : {' '.join(cmd)}\n{'-'*60}\n")
 
         self._worker = _CmdWorker(cmd)
         self._worker.output.connect(lambda line: self._console.append(line))
@@ -412,13 +388,13 @@ class RepairScreen(QWidget):
         self._worker.start()
 
     def _on_cmd_done(self, code: int):
-        msg = f"\n{'─'*60}\nTerminé (code {code})"
+        msg = f"\n{'-'*60}\nTermine (code {code})"
         if code == 0:
-            msg += " — ✅ Aucune erreur détectée."
+            msg += " — Aucune erreur detectee."
         elif code == 1:
-            msg += " — ✅ Erreurs corrigées."
+            msg += " — Erreurs corrigees."
         elif code == 2:
-            msg += " — ⚠ Des problèmes ont été détectés mais non corrigés."
+            msg += " — Des problemes ont ete detectes mais non corriges."
         else:
-            msg += " — ❌ Erreur ou accès refusé."
+            msg += " — Erreur ou acces refuse."
         self._console.append(msg)
