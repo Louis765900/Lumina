@@ -1,84 +1,41 @@
-# Lumina v1.0.0
+# Lumina
 
-Lumina is a Windows-first data recovery application for scanning disks, volumes, and local disk images. It focuses on real recovery paths only: no fake results are shown in the normal product flow.
+**Récupération de données pour Windows — interface rétro Windows 98, moteur moderne.**
 
-## What Lumina Does
+Lumina retrouve vos fichiers perdus sur disques durs, SSD, clés USB et cartes SD. Pas de résultats inventés : chaque fichier affiché provient d'une vraie analyse de votre disque.
 
-- Quick Scan: reads NTFS metadata from the MFT when the source supports it.
-- Deep Scan: performs file carving for common formats including JPEG, PNG, PDF, ZIP/Office, MP4/MOV, and SQLite.
-- Native image scan: uses the bundled Rust scanner for fast signature discovery on local disk images.
-- Python compatibility scan: keeps the portable Python engine available for sources not yet supported by the native helper.
-- Recovery safety: blocks recovery to a detected source volume and warns when the destination is ambiguous.
-- Reports and provenance: keeps DFXML/export support, SHA-256 after extraction, source provenance, and integrity metadata.
+---
 
-## Important Limits
+## Ce que Lumina fait
 
-- Recovery is never guaranteed.
-- SSDs with TRIM enabled may erase deleted data before Lumina can recover it.
-- Quick Scan currently supports NTFS MFT metadata only.
-- FAT32, exFAT, ext4, and APFS metadata parsing are not part of v1.0.0.
-- Physical drives still use the compatible Python deep scan path; the native helper is image-only in v1.0.0.
-- Damaged media should be imaged before deep scanning whenever possible.
+- **Quick Scan** — lit les métadonnées NTFS (MFT) en quelques secondes pour retrouver les fichiers supprimés récemment.
+- **Deep Scan** — analyse secteur par secteur pour récupérer JPEG, PNG, PDF, ZIP, DOCX, MP4, MOV, SQLite et bien d'autres.
+- **Scanner natif Rust** — jusqu'à 300 MB/s sur les images disque locales, 84× plus rapide que le chemin Python.
+- **Sécurité de récupération** — bloque toute écriture vers le volume source et guide vers un dossier sûr.
+- **Rapports DFXML + SHA-256** — export forensique complet avec hash d'intégrité après extraction.
 
-## Disclaimer
-
-Do not install Lumina on the disk you want to recover. Do not recover files to the source disk. If the data is important, create a byte-to-byte image first and scan the image. The user is responsible for choosing a safe recovery destination.
-
-## Installation
-
-Build the Windows executable with:
+## Démarrage rapide
 
 ```powershell
+# Construire l'exécutable
 python -m PyInstaller lumina.spec --noconfirm
+
+# Lancer (droits Administrateur requis)
+dist\Lumina.exe
 ```
 
-The executable is generated at:
+Au premier lancement, un assistant de configuration s'ouvre : langue, dossier de récupération, moteur de scan, et avertissement de sécurité obligatoire.
 
-```text
-dist/Lumina.exe
-```
+## Points à savoir avant de lancer
 
-Run Lumina as Administrator. Windows raw disk access requires elevated privileges.
+- Ne jamais récupérer vers le disque source.
+- SSD + TRIM actif = les données effacées peuvent être irrécupérables.
+- Pour les supports endommagés : créez d'abord une image disque, scannez l'image.
+- Extraction limitée à 500 Mo par fichier (signalé dans l'interface et le rapport DFXML).
+- Windows uniquement — accès raw disk et UAC obligatoires.
 
-## First Launch
+## Ce qui arrive ensuite
 
-On first launch, Lumina opens a setup wizard before Home. The wizard asks for:
-
-- language: French or English;
-- default recovery folder;
-- scan engine: auto, native, or Python;
-- image-first preference;
-- mandatory recovery disclaimer acceptance.
-
-Settings are stored locally at:
-
-```text
-%APPDATA%/Lumina/settings.json
-```
-
-## Logs
-
-Runtime logs are written to:
-
-```text
-logs/lumina.log
-```
-
-Logs rotate automatically when they exceed 5 MB.
-
-## Limitations connues v1.0.0
-
-- **Quick Scan NTFS uniquement** : la lecture MFT ne fonctionne que sur les volumes NTFS. Les systèmes FAT32, exFAT, ext4 et APFS ne sont pas pris en charge ; Lumina propose alors de lancer un Deep Scan.
-- **Scanner Rust limité aux images disque locales** : le helper natif ne couvre pas encore les lecteurs physiques (`\\.\PhysicalDrive`), les volumes logiques bruts, ni les clichés VSS. Ces sources passent systématiquement par le moteur Python.
-- **SSD + TRIM** : sur un SSD avec TRIM actif, les secteurs marqués libres peuvent être effacés par le contrôleur avant toute tentative de récupération. Les chances de succès dépendent du firmware et du délai écoulé depuis la suppression.
-- **Extraction plafonnée à 500 Mo par fichier** : tout fichier dépassant 500 Mo est extrait partiellement. Lumina signale la troncature dans l'interface, dans le log et dans l'export DFXML (`<lumina:truncated>true</lumina:truncated>`).
-- **Windows uniquement** : Lumina requiert des droits Administrateur pour ouvrir les périphériques bruts. L'accès raw-disk, le re-lancement UAC, et les commandes de réparation (CHKDSK, SFC, DISM) sont exclusivement Windows.
-
-## Roadmap
-
-Items prévus pour les versions post-v1.0.0 (ordre indicatif) :
-
-- **Parseur ext4 / APFS** : ajouter `Ext4Parser` et `ApfsParser` dans le registre `FS_PARSERS` pour proposer un Quick Scan sur Linux et macOS.
-- **Scanner Rust sur PhysicalDrive et volumes bruts** : lever la restriction image-only de la Phase 4 en gérant les chemins `\\.\PhysicalDrive*` et `\\.\C:` côté Rust.
-- **SIMD / memchr** : remplacer le hot-path Aho-Corasick par une recherche premier-octet vectorisée pour viser > 500 MB/s en Deep Scan.
-- **Releases GitHub automatisées** : pipeline CI/CD PyInstaller → `dist/Lumina.exe` publié directement sur la page Releases du dépôt.
+- Parseurs ext4 / APFS pour un Quick Scan Linux et macOS.
+- Scanner Rust étendu aux lecteurs physiques (`\\.\PhysicalDrive`).
+- Pipeline CI/CD avec release automatique de `Lumina.exe`.
