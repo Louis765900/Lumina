@@ -21,7 +21,7 @@ from app.core.settings import is_demo_enabled
 
 ensure_lumina_log()
 _log = logging.getLogger("lumina.recovery")
-_NATIVE_IMAGE_ONLY_ERROR = "Native engine Phase 4 supports image files only."
+_NATIVE_UNAVAILABLE_ERROR = "Native engine unavailable for this source."
 _NATIVE_VALIDATION_WINDOW = 4 * 1024 * 1024
 
 
@@ -68,9 +68,7 @@ class _DedupIndex:
         pos = bisect.bisect_right(self._starts, start)
         if pos > 0 and self._ends[pos - 1] > start:
             return True
-        if pos < len(self._starts) and self._starts[pos] < end:
-            return True
-        return False
+        return pos < len(self._starts) and self._starts[pos] < end
 
     def __len__(self) -> int:
         return len(self._starts)
@@ -122,18 +120,24 @@ class ScanWorker(QThread):
     error             = pyqtSignal(str)
 
     # Demo data is loaded lazily to keep demo code out of the production bundle.
-    # Access via self._SIM_FILES / self._PHASES in _run_simulation() only.
+    # Access via self._sim_files / self._phases in _run_simulation() only.
     @property
-    def _SIM_FILES(self):
+    def _sim_files(self):  # type: ignore[override]
         from app.workers._demo import SIM_FILES
         return SIM_FILES
 
     @property
-    def _PHASES(self):
+    def _phases(self):  # type: ignore[override]
         from app.workers._demo import PHASES
         return PHASES
 
-    def __init__(self, disk: dict, simulate: bool = False, parent=None):
+    def __init__(
+        self,
+        disk: dict,
+        simulate: bool = False,
+        preloaded_files: list[dict] | None = None,
+        parent=None,
+    ):
         super().__init__(parent)
         if simulate and not is_demo_enabled():
             raise ValueError(t("scan.demo_disabled"))
@@ -141,8 +145,8 @@ class ScanWorker(QThread):
         self._simulate        = simulate
         self._stop_requested  = False
         self._pause_event     = threading.Event()
-        self._pause_event.set()          # non mis en pause par défaut
-        self._found_files: list[dict] = []
+        self._pause_event.set()
+        self._found_files: list[dict] = list(preloaded_files) if preloaded_files else []
         self._lock = threading.Lock()
 
     # ── Contrôle public ───────────────────────────────────────────────────────
@@ -163,19 +167,23 @@ class ScanWorker(QThread):
     # ── Entrée du thread ──────────────────────────────────────────────────────
 
     def run(self):
-        self._found_files    = []
+        # _found_files may already contain preloaded checkpoint data — don't reset.
         self._stop_requested = False
         self._pause_event.set()
         try:
             if self._simulate:
+                self._found_files = []
                 self._run_simulation()
             else:
+                self._clear_checkpoint()
                 self._run_real()
         except Exception as exc:
             self.error.emit(str(exc))
         finally:
             with self._lock:
                 snapshot = list(self._found_files)
+            if snapshot:
+                self._save_checkpoint()
             self.finished.emit(snapshot)
 
     # ── Mode simulation ───────────────────────────────────────────────────────
@@ -192,9 +200,9 @@ class ScanWorker(QThread):
         self.msleep(500)
 
         used_names: set[str] = set()
-        phase_step = 80 // len(self._PHASES)
+        phase_step = 80 // len(self._phases)
 
-        for i, phase in enumerate(self._PHASES):
+        for i, phase in enumerate(self._phases):
             self._pause_event.wait()
             if self._stop_requested:
                 self.status_text.emit("Scan annulé par l'utilisateur.")
@@ -209,7 +217,7 @@ class ScanWorker(QThread):
                     used_names = {f["name"] for f in self._found_files}
 
                 available = [
-                    (n, e, s, q) for n, e, s, q in self._SIM_FILES
+                    (n, e, s, q) for n, e, s, q in self._sim_files
                     if f"{n}{e}" not in used_names
                 ]
                 to_add = available[: random.randint(1, 3)]
@@ -243,7 +251,7 @@ class ScanWorker(QThread):
             used_names = {f["name"] for f in self._found_files}
 
         pct = 82
-        for name, ext, size_kb, integrity in self._SIM_FILES:
+        for name, ext, size_kb, integrity in self._sim_files:
             self._pause_event.wait()
             if self._stop_requested:
                 return
@@ -271,6 +279,33 @@ class ScanWorker(QThread):
         self.progress.emit(100)
         self.msleep(300)
 
+    _CHECKPOINT_INTERVAL = 60.0   # seconds between auto-saves during carving
+
+    def _save_checkpoint(self) -> None:
+        """Persist current results to logs/scan_checkpoint.json (crash recovery)."""
+        import json as _json
+        try:
+            log_dir = Path("logs")
+            log_dir.mkdir(exist_ok=True)
+            checkpoint = log_dir / "scan_checkpoint.json"
+            with self._lock:
+                snapshot = list(self._found_files)
+            checkpoint.write_text(
+                _json.dumps(snapshot, ensure_ascii=False, default=str, indent=2),
+                encoding="utf-8",
+            )
+            _log.debug("[ScanWorker] Checkpoint saved: %d file(s).", len(snapshot))
+        except Exception as exc:
+            _log.debug("[ScanWorker] Checkpoint save failed: %s", exc)
+
+    def _clear_checkpoint(self) -> None:
+        try:
+            checkpoint = Path("logs") / "scan_checkpoint.json"
+            if checkpoint.exists():
+                checkpoint.unlink()
+        except Exception:
+            pass
+
     def _run_python_carving(
         self,
         raw_dev: str,
@@ -280,7 +315,8 @@ class ScanWorker(QThread):
         pct_scale: int,
     ) -> None:
         local_batch: list[dict] = []
-        last_emit = time.monotonic()
+        last_emit      = time.monotonic()
+        last_checkpoint = time.monotonic()
 
         def _on_progress(pct: int) -> None:
             self._pause_event.wait()
@@ -288,7 +324,7 @@ class ScanWorker(QThread):
                 self.progress.emit(pct_base + pct * pct_scale // 100)
 
         def _on_file(info: dict) -> None:
-            nonlocal local_batch, last_emit
+            nonlocal local_batch, last_emit, last_checkpoint
             self._pause_event.wait()
             with self._lock:
                 self._found_files.append(info)
@@ -298,6 +334,9 @@ class ScanWorker(QThread):
                 self.files_batch_found.emit(list(local_batch))
                 local_batch.clear()
                 last_emit = now
+            if now - last_checkpoint >= self._CHECKPOINT_INTERVAL:
+                self._save_checkpoint()
+                last_checkpoint = now
 
         carver.scan(
             raw_dev,
@@ -310,10 +349,11 @@ class ScanWorker(QThread):
         if local_batch:
             self.files_batch_found.emit(local_batch)
 
-    def _run_native_image_carving(
+    def _run_native_carving(
         self,
         *,
-        image_path: str,
+        raw_path: str,
+        is_image: bool,
         carver,
         dedup_check,
         pct_base: int,
@@ -322,8 +362,14 @@ class ScanWorker(QThread):
         from app.core.native.client import NativeScanClient
         from app.core.native.protocol import NativeCandidate, NativeSignature, NativeSource
 
-        image = Path(image_path)
-        source = NativeSource(kind="image", path=str(image), size_bytes=image.stat().st_size)
+        if is_image:
+            size_bytes = Path(raw_path).stat().st_size
+            source_kind = "image"
+        else:
+            size_bytes = self._disk.get("size_bytes", 0)
+            source_kind = "device"
+
+        source = NativeSource(kind=source_kind, path=raw_path, size_bytes=size_bytes)
         signatures = [
             NativeSignature(signature_id, ext, header)
             for signature_id, ext, header in carver.native_signature_records()
@@ -338,7 +384,7 @@ class ScanWorker(QThread):
 
         self.status_text.emit("Moteur natif rapide — analyse des signatures.")
 
-        with image.open("rb") as fh:
+        with open(raw_path, "rb") as fh:
 
             def _on_candidates(batch: list[NativeCandidate]) -> None:
                 for candidate in batch:
@@ -349,7 +395,7 @@ class ScanWorker(QThread):
                     info = self._native_candidate_to_file_info(
                         fh,
                         carver,
-                        image_path,
+                        raw_path,
                         candidate,
                         counter,
                         dedup_check,
@@ -431,19 +477,27 @@ class ScanWorker(QThread):
                         if not self._stop_requested:
                             self.progress.emit(progress_map(pct))
 
+                    _fs_pending: list[dict] = []
+                    _fs_batch = 100
+
                     def _fs_file(info: dict) -> None:
                         self._pause_event.wait()
                         for start, length in info.get("data_runs", ()):
                             dedup_index.add(start, length)
                         with self._lock:
                             self._found_files.append(info)
-                        self.files_batch_found.emit([info])
+                        _fs_pending.append(info)
+                        if len(_fs_pending) >= _fs_batch:
+                            self.files_batch_found.emit(list(_fs_pending))
+                            _fs_pending.clear()
 
                     count = parser.enumerate_files(
                         stop_flag=lambda: self._stop_requested,
                         progress_cb=_fs_progress,
                         file_found_cb=_fs_file,
                     )
+                    if _fs_pending:
+                        self.files_batch_found.emit(list(_fs_pending))
                     self.status_text.emit(
                         f"{fs_name} : {count} fichier(s) récupéré(s) avec leur nom d'origine."
                     )
@@ -453,6 +507,9 @@ class ScanWorker(QThread):
                         "[ScanWorker] Aucun FS reconnu sur %s — passage direct au carving brut.",
                         raw_dev,
                     )
+                    self.status_text.emit(
+                        "Système de fichiers non reconnu — analyse par signature directe."
+                    )
             finally:
                 os.close(fd)
 
@@ -461,6 +518,9 @@ class ScanWorker(QThread):
                 "[ScanWorker] Impossible d'ouvrir %s pour l'analyse FS : %s.",
                 raw_dev,
                 exc,
+            )
+            self.status_text.emit(
+                "Périphérique illisible — analyse par signature directe."
             )
 
         return dedup_index, fs_ok, fs_name, count
@@ -526,11 +586,6 @@ class ScanWorker(QThread):
 
         engine = get_scan_engine()
         _log.info("scan_start mode=deep engine=%s source=%s", engine, raw_dev)
-        if not is_image_source and engine == "native":
-            self.status_text.emit("Moteur natif indisponible pour cette source.")
-            self.error.emit(_NATIVE_IMAGE_ONLY_ERROR)
-            return
-
         # ── Phase 1 : énumération FS (MFT / ext4 / APFS / …) — 0-20 % ─────────
         # The fd lifecycle is owned here; the parser only calls os.lseek/read on it.
         dedup_index, fs_ok, fs_name, _count = self._enumerate_filesystem_metadata(
@@ -549,23 +604,28 @@ class ScanWorker(QThread):
                 len(dedup_index), fs_name,
             )
 
-        pct_base  = 20 if fs_ok else 0
-        pct_scale = 80 if fs_ok else 100
+        # Phase 1 always occupies 0-20% of the visual bar, whether it succeeded
+        # or not. If we reset pct_base to 0 when fs_ok=False the bar visibly
+        # jumps backward; keeping it at 20 gives a monotonically increasing bar.
+        pct_base  = 20
+        pct_scale = 80
 
         from app.core.file_carver import FileCarver
 
         carver = FileCarver()
         dedup_check = dedup_index.overlaps if fs_ok else None
 
-        if is_image_source and engine in {"auto", "native"}:
+        if engine in {"auto", "native"}:
             try:
-                self._run_native_image_carving(
-                    image_path=raw_dev,
+                self._run_native_carving(
+                    raw_path=raw_dev,
+                    is_image=is_image_source,
                     carver=carver,
                     dedup_check=dedup_check,
                     pct_base=pct_base,
                     pct_scale=pct_scale,
                 )
+
             except Exception as exc:
                 if self._stop_requested:
                     _log.warning(

@@ -20,6 +20,8 @@ import os
 import pkgutil
 import re
 import threading
+from collections.abc import Callable
+from typing import Any
 
 from app.core.recovery import ensure_lumina_log
 from app.plugins.carvers.base_plugin import BaseCarverPlugin
@@ -166,9 +168,11 @@ SIGNATURES: dict[str, list[tuple[bytes, bytes | None]]] = {
         # Shares header with WMV — discriminated by content
         (b"\x30\x26\xb2\x75\x8e\x66\xcf\x11\xa6\xd9", None),
     ],
+    # .aiff is detected via RIFF-style FORM container discriminated at offset+8.
+    # The 4-byte size field is never zero in real files, so we match on FORM
+    # prefix only and discriminate the sub-type (AIFF/AIFC) in _form_ext().
     ".aiff": [
-        (b"FORM\x00\x00\x00\x00AIFF", None),
-        (b"FORM\x00\x00\x00\x00AIFC", None),
+        (b"FORM", None),   # discriminated by _form_ext() at offset+8
     ],
     ".opus": [
         (b"OggS\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00", None),  # Ogg Opus
@@ -242,17 +246,100 @@ SIGNATURES: dict[str, list[tuple[bytes, bytes | None]]] = {
         (b"<!DOCTYPE html", b"</html>"),
         (b"<html",          b"</html>"),
     ],
+    # "From: " and "X-Pop: " are too generic (appear in plain text).
+    # These headers are distinctive enough to anchor an EML safely.
     ".eml": [
-        (b"From: ",       None),
-        (b"X-Pop: ",      None),
-        (b"Return-Path:", None),
+        (b"MIME-Version: 1.0",  None),
+        (b"Return-Path: <",     None),
+        (b"Message-ID: <",      None),
+    ],
+
+    # ── Additional RAW / Photo ────────────────────────────────────────
+    # .dng intentionally omitted: it shares the exact TIFF header (II*\x00 or
+    # MM\x00*) and cannot be distinguished in the first 4 bytes without reading
+    # IFD tags. Real DNG files are covered by the .tiff entry above; the
+    # extension may be refined by a future DNG plugin that reads tag 0xC612.
+    ".ai": [
+        (b"%PDF-", b"%%EOF"),      # Adobe Illustrator (PDF container)
+    ],
+    ".eps": [
+        (b"%!PS-Adobe", None),
+    ],
+    ".indd": [
+        (b"\x06\x06\xed\xf5\xd8\x1d\x46\xe5\xbd\x31\xef\xe7\xfe\x74\xb7\x1d", None),  # InDesign
+    ],
+
+    # ── Additonal Audio ───────────────────────────────────────────────
+    ".ape": [
+        (b"MAC ", None),      # Monkey's Audio
+    ],
+    ".wv": [
+        (b"wvpk", None),      # WavPack
+    ],
+    ".mka": [
+        (b"\x1a\x45\xdf\xa3", None),  # Matroska Audio (same EBML as MKV)
+    ],
+
+    # ── Additional Video ──────────────────────────────────────────────
+    ".rm": [
+        (b".RMF\x00", None),   # RealMedia
+    ],
+    ".mxf": [
+        # MXF KLV Universal Label
+        (b"\x06\x0e\x2b\x34\x02\x05\x01\x01\x0d\x01\x02\x01\x01\x02", None),
+    ],
+    ".vob": [
+        (b"\x00\x00\x01\xba", None),  # DVD VOB (same pack header as MPG)
+    ],
+
+    # ── Additional Documents ──────────────────────────────────────────
+    ".rtf": [
+        (b"{\\rtf1", b"}"),
+    ],
+    ".accdb": [
+        # MS Access 2007+ (OLE2-based but with ACCDB-specific header bytes)
+        (b"\x00\x01\x00\x00Standard ACE DB", None),
+    ],
+
+    # ── Contact / Calendar ────────────────────────────────────────────
+    ".vcf": [
+        (b"BEGIN:VCARD", b"END:VCARD"),
+    ],
+    ".ics": [
+        (b"BEGIN:VCALENDAR", b"END:VCALENDAR"),
+    ],
+
+    # ── Windows system / installer formats ───────────────────────────
+    ".cab": [
+        (b"MSCF\x00\x00\x00\x00", None),   # Microsoft Cabinet
+    ],
+    ".swf": [
+        (b"FWS", None),   # Flash (uncompressed)
+        (b"CWS", None),   # Flash (zlib-compressed)
+        (b"ZWS", None),   # Flash (LZMA-compressed)
+    ],
+    ".wmf": [
+        # Aldus Placeable WMF (most common variant with magic header)
+        (b"\xd7\xcd\xc6\x9a", None),
+    ],
+    ".dwg": [
+        # AutoCAD drawing - version string AC10xx
+        (b"AC1009", None),   # AutoCAD R12
+        (b"AC1012", None),   # AutoCAD R13
+        (b"AC1014", None),   # AutoCAD R14
+        (b"AC1015", None),   # AutoCAD 2000
+        (b"AC1018", None),   # AutoCAD 2004
+        (b"AC1021", None),   # AutoCAD 2007
+        (b"AC1024", None),   # AutoCAD 2010
+        (b"AC1027", None),   # AutoCAD 2013
+        (b"AC1032", None),   # AutoCAD 2018+
     ],
 }
 
 
 # ── RIFF sub-type discrimination ──────────────────────────────────────────────
 def _riff_ext(data: bytes, idx: int) -> str:
-    """Return .avi, .wav, or .webp based on RIFF sub-type at idx."""
+    """Return specific extension based on RIFF sub-type at idx."""
     try:
         sub = data[idx + 8: idx + 12]
         if sub == b"WEBP":
@@ -261,9 +348,28 @@ def _riff_ext(data: bytes, idx: int) -> str:
             return ".wav"
         if sub == b"AVI ":
             return ".avi"
+        if sub == b"RMID":
+            return ".mid"
+        if sub[:3] == b"CDX":
+            return ".cda"
     except IndexError:
         pass
-    return ".avi"   # default RIFF fallback
+    return ".bin"   # unknown RIFF sub-type — don't pretend it's AVI
+
+
+# ── FORM/IFF sub-type discrimination (AIFF, AIFC, others) ────────────────────
+def _form_ext(data: bytes, idx: int) -> str:
+    """Return .aiff, .aifc, or .avi (RIFF fallback) from FORM/RIFF sub-type."""
+    try:
+        sub = data[idx + 8: idx + 12]
+        if sub == b"AIFF":
+            return ".aiff"
+        if sub == b"AIFC":
+            return ".aiff"
+        # Could be a RIFF container mislabelled as FORM — delegate
+        return _riff_ext(data, idx)
+    except IndexError:
+        return ".bin"
 
 
 # ── OLE2 sub-type discrimination ─────────────────────────────────────────────
@@ -402,7 +508,7 @@ class FileCarver:
         data_base_offset: int,
         device: str,
         counter: dict[str, int],
-        dedup_check=None,
+        dedup_check: Callable[..., Any] | None = None,
         source: str = "carver",
     ) -> tuple[dict | None, str | None]:
         """
@@ -435,8 +541,31 @@ class FileCarver:
 
             size_kb, integrity = plugin.estimate_size(data, idx, footer)
         else:
-            if header == b"RIFF":
-                ext = _riff_ext(data, idx)
+            # ── Legacy format validation before size estimation ────────────
+            if header == b"MZ":
+                # Validate PE header when it's reachable within the data window.
+                # If the window is too small (fragmented file), keep the candidate
+                # at reduced integrity rather than discarding a real executable.
+                pe_off_pos = idx + 0x3C
+                if pe_off_pos + 4 <= len(data):
+                    pe_off = int.from_bytes(data[pe_off_pos:pe_off_pos + 4], "little")
+                    pe_sig_pos = idx + pe_off
+                    if pe_off >= 4 and pe_sig_pos + 4 <= len(data) and data[pe_sig_pos:pe_sig_pos + 4] != b"PE\x00\x00":
+                        return None, "reject"
+                    # pe_off out of window → accept with integrity 60 (set below)
+
+            elif header == b"BM":
+                # BMP reserved bytes 6-9 must be zero; pixel-data offset must be sane.
+                if idx + 14 > len(data):
+                    return None, "reject"
+                if data[idx + 6:idx + 10] != b"\x00\x00\x00\x00":
+                    return None, "reject"
+                pix_off = int.from_bytes(data[idx + 10:idx + 14], "little")
+                if pix_off < 26 or pix_off > 16384:
+                    return None, "reject"
+
+            if header == b"RIFF" or header == b"FORM":
+                ext = _form_ext(data, idx) if header == b"FORM" else _riff_ext(data, idx)
             elif ext == ".doc" and header == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
                 ext = _ole2_ext(data, idx)
             elif header.startswith(b"\x30\x26\xb2\x75"):
@@ -470,11 +599,11 @@ class FileCarver:
     def scan(
         self,
         device: str,
-        progress_cb=None,
-        file_found_cb=None,
-        stop_flag=None,
+        progress_cb: Callable[..., Any] | None = None,
+        file_found_cb: Callable[..., Any] | None = None,
+        stop_flag: Callable[..., Any] | None = None,
         max_bytes: int | None = None,
-        dedup_check=None,
+        dedup_check: Callable[..., Any] | None = None,
     ) -> list[dict]:
         """
         Scan a raw device for known file signatures.
@@ -550,7 +679,7 @@ class FileCarver:
                     if entry is None:
                         continue
 
-                    ext, footer, plugin = entry
+                    ext, _footer, _plugin = entry
                     idx = m.start()
                     file_info, reason = self.build_file_info_from_candidate(
                         signature_id=self.signature_id(ext, header),
@@ -612,7 +741,7 @@ class FileCarver:
         """
         result = [0]
 
-        def _seek():
+        def _seek() -> None:
             try:
                 tmp_fd = os.open(device, os.O_RDONLY | getattr(os, "O_BINARY", 0))
                 try:
@@ -674,6 +803,10 @@ class FileCarver:
             ".7z":  10240,
             ".exe": 1024,
             ".sqlite": 1024,
+            ".cab": 5120,
+            ".swf": 2048,
+            ".wmf": 512,
+            ".dwg": 4096,
         }
         size_kb = defaults_kb.get(ext, 1024)
 

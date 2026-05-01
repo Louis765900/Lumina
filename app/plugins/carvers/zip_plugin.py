@@ -54,9 +54,7 @@ class ZipPlugin(BaseCarverPlugin):
 
         if method not in _VALID_METHODS:
             return False
-        if name_len == 0 or name_len > 2048:
-            return False
-        return True
+        return not (name_len == 0 or name_len > 2048)
 
     def refine_extension(self, data: bytes, idx: int) -> str:
         chunk = data[idx : idx + 2048]

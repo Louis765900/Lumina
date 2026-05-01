@@ -1,109 +1,109 @@
 """
-Lumina v2.0 — Écran 6 : Outils avancés
-Rapport S.M.A.R.T. fonctionnel (wmic) ; autres outils prévus dans une future version.
+Lumina — Ecran 6 : Outils avances (style Windows 98)
+Rapport S.M.A.R.T. fonctionnel ; autres outils prevus dans une future version.
 """
 
-import glob
-import json
 import logging
-import os
 import pathlib
 import subprocess
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QCursor
 from PyQt6.QtWidgets import (
-    QComboBox, QDialog, QFrame, QGridLayout,
-    QHBoxLayout, QLabel, QMessageBox, QPushButton,
-    QScrollArea, QVBoxLayout, QWidget,
+    QComboBox,
+    QDialog,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
 )
 
 from app.core.recovery import ensure_lumina_log
 from app.ui.palette import (
-    ACCENT as _ACCENT,
-    BORDER as _BORDER,
-    CARD as _CARD,
     ERR as _ERR,
-    HOVER as _HOVER,
-    MUTED as _MUTED,
+)
+from app.ui.palette import (
     OK as _OK,
-    SUB as _SUB,
-    TEXT as _TEXT,
+)
+from app.ui.palette import (
     WARN as _WARN,
 )
 
-# Outils — (icon, title, desc, badge, badge_col, available, detail, action_id|None)
-# action_id maps to a ToolsScreen method named f"_{action_id}"
+# Outils — (title, desc, badge, available, detail, action_id|None)
 _TOOLS = [
-    ("🔬", "Analyseur Hexadécimal",
+    ("Analyseur Hexadecimal",
      "Explorez le contenu brut de votre disque octet par octet.",
-     "Avancé",     "#8B5CF6", False,
-     "Ouvre une vue hexadécimale du disque sélectionné.\n\n"
-     "• Parcourez les secteurs bruts (512 o / 4096 o)\n"
-     "• Recherchez des signatures de fichiers (magic bytes)\n"
-     "• Identifiez les tables de partition MBR/GPT\n"
-     "• Exportez des plages de secteurs en fichier binaire",
+     "Avance", False,
+     "Ouvre une vue hexadecimale du disque selectionne.\n\n"
+     "- Parcourez les secteurs bruts (512 o / 4096 o)\n"
+     "- Recherchez des signatures de fichiers (magic bytes)\n"
+     "- Identifiez les tables de partition MBR/GPT\n"
+     "- Exportez des plages de secteurs en fichier binaire",
      None),
 
-    ("📊", "Rapport S.M.A.R.T.",
-     "Consultez les indicateurs de santé de votre disque dur.",
-     "Diagnostic", "#3B82F6", True,
+    ("Rapport S.M.A.R.T.",
+     "Consultez les indicateurs de sante de votre disque dur.",
+     "Diagnostic", True,
      "Lit les attributs S.M.A.R.T. directement depuis le firmware du disque.\n\n"
-     "• État général (OK / Dégradé / Critique)\n"
-     "• Modèle, numéro de série, révision firmware\n"
-     "• Interface (SATA, NVMe, USB…) et capacité\n"
-     "• Nombre de partitions et type de média\n"
-     "• Alerte prédictive de panne imminente",
+     "- Etat general (OK / Degrade / Critique)\n"
+     "- Modele, numero de serie, revision firmware\n"
+     "- Interface (SATA, NVMe, USB...) et capacite\n"
+     "- Nombre de partitions et type de media\n"
+     "- Alerte predictive de panne imminente",
      "launch_smart"),
 
-    ("🗑", "Effacer les logs",
+    ("Effacer les logs",
      "Supprimez lumina.log, l'historique et les rapports de scan.",
-     "Maintenance", "#64748B", True,
-     "Purge complète des fichiers de log Lumina.\n\n"
-     "• Vide logs/lumina.log\n"
-     "• Réinitialise logs/history.json à []\n"
-     "• Supprime tous les logs/scan_*.json orphelins\n"
-     "• Demande confirmation avant toute action",
+     "Maintenance", True,
+     "Purge complete des fichiers de log Lumina.\n\n"
+     "- Vide logs/lumina.log\n"
+     "- Reinitialise logs/history.json a []\n"
+     "- Supprime tous les logs/scan_*.json orphelins\n"
+     "- Demande confirmation avant toute action",
      "purge_logs"),
 
-    ("🖧", "Récupération NAS",
-     "Récupérez des données depuis un NAS (RAID 0, 1, 5, 6).",
-     "Réseau",     "#10B981", False,
-     "Reconstruit les volumes RAID logiciels pour accéder aux données.\n\n"
-     "• Supporte RAID 0, 1, 5, 6 et JBOD\n"
-     "• Compatible Synology, QNAP, Netgear\n"
-     "• Recalcule la parité pour les matrices dégradées\n"
-     "• Monte le volume virtuel pour une récupération normale",
+    ("Recuperation NAS",
+     "Recuperez des donnees depuis un NAS (RAID 0, 1, 5, 6).",
+     "Reseau", False,
+     "Reconstruit les volumes RAID logiciels pour acceder aux donnees.\n\n"
+     "- Supporte RAID 0, 1, 5, 6 et JBOD\n"
+     "- Compatible Synology, QNAP, Netgear\n"
+     "- Recalcule la parite pour les matrices degradees\n"
+     "- Monte le volume virtuel pour une recuperation normale",
      None),
 
-    ("🐧", "Récupération Linux/macOS",
+    ("Recuperation Linux/macOS",
      "Lisez les partitions ext4, Btrfs, APFS et HFS+.",
-     "Cross-OS",   "#F59E0B", False,
-     "Accède aux systèmes de fichiers non-Windows depuis Lumina.\n\n"
-     "• Lecture ext2 / ext3 / ext4 (Linux)\n"
-     "• Lecture Btrfs avec support des instantanés\n"
-     "• Lecture APFS et HFS+ (macOS)\n"
-     "• Récupération sur Time Machine et partitions Boot Camp",
+     "Cross-OS", False,
+     "Accede aux systemes de fichiers non-Windows depuis Lumina.\n\n"
+     "- Lecture ext2 / ext3 / ext4 (Linux)\n"
+     "- Lecture Btrfs avec support des instantanes\n"
+     "- Lecture APFS et HFS+ (macOS)\n"
+     "- Recuperation sur Time Machine et partitions Boot Camp",
      None),
 
-    ("🔐", "Récupération chiffrée",
-     "Récupérez des données sur des volumes BitLocker ou VeraCrypt.",
-     "Sécurité",   "#EF4444", False,
-     "Déchiffre à la volée pour permettre la récupération de fichiers.\n\n"
-     "• BitLocker (mot de passe ou clé de récupération 48 chiffres)\n"
-     "• VeraCrypt (volume standard et volume caché)\n"
-     "• La clé n'est jamais stockée sur disque\n"
-     "• Compatible avec les disques partiellement corrompus",
+    ("Recuperation chiffree",
+     "Recuperez des donnees sur des volumes BitLocker ou VeraCrypt.",
+     "Securite", False,
+     "Dechiffre a la volee pour permettre la recuperation de fichiers.\n\n"
+     "- BitLocker (mot de passe ou cle de recuperation 48 chiffres)\n"
+     "- VeraCrypt (volume standard et volume cache)\n"
+     "- La cle n'est jamais stockee sur disque\n"
+     "- Compatible avec les disques partiellement corrompus",
      None),
 
-    ("☁",  "Récupération Cloud",
-     "Synchronisez et récupérez depuis OneDrive, Google Drive, etc.",
-     "Cloud",      "#06B6D4", False,
-     "Restaure des fichiers supprimés ou écrasés depuis les services cloud.\n\n"
-     "• OneDrive, Google Drive, Dropbox, iCloud\n"
-     "• Accède à la corbeille et à l'historique de versions\n"
-     "• Télécharge directement vers un dossier local\n"
-     "• Fonctionne même si le client de synchronisation est désinstallé",
+    ("Recuperation Cloud",
+     "Synchronisez et recuperez depuis OneDrive, Google Drive, etc.",
+     "Cloud", False,
+     "Restaure des fichiers supprimes ou ecrases depuis les services cloud.\n\n"
+     "- OneDrive, Google Drive, Dropbox, iCloud\n"
+     "- Accede a la corbeille et a l'historique de versions\n"
+     "- Telecharge directement vers un dossier local\n"
+     "- Fonctionne meme si le client de synchronisation est desinstalle",
      None),
 ]
 
@@ -113,61 +113,44 @@ _TOOLS = [
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class _InfoDialog(QDialog):
-    def __init__(self, icon: str, title: str, detail: str, parent=None):
+    def __init__(self, title: str, detail: str, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(f"À propos — {title}")
-        self.setFixedWidth(400)
+        self.setWindowTitle(f"A propos — {title}")
+        self.setFixedWidth(420)
         self.setStyleSheet(
-            "QDialog { background: #0F172A; border: 1px solid rgba(255,255,255,0.10);"
-            "  border-radius: 14px; }"
-            "QLabel  { font-family: 'Inter'; }"
+            "QDialog { background-color: #C0C0C0; }"
+            "QLabel  { font-family: 'Work Sans', Arial; }"
         )
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(24, 20, 24, 20)
-        root.setSpacing(14)
+        root.setContentsMargins(12, 10, 12, 10)
+        root.setSpacing(10)
 
-        # En-tête : icône + titre
-        hdr = QHBoxLayout()
-        hdr.setSpacing(12)
-        ico_lbl = QLabel(icon)
-        ico_lbl.setFixedSize(42, 42)
-        ico_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        ico_lbl.setStyleSheet(
-            "font-size: 20px; background: rgba(0,122,255,0.12);"
-            "border-radius: 10px;"
-        )
-        hdr.addWidget(ico_lbl)
         title_lbl = QLabel(title)
         title_lbl.setStyleSheet(
-            f"color: {_TEXT}; font-size: 16px; font-weight: 700;"
+            "color: #000000; font-size: 13px; font-weight: 700;"
+            "background: transparent;"
         )
-        hdr.addWidget(title_lbl, stretch=1)
-        root.addLayout(hdr)
+        root.addWidget(title_lbl)
 
-        # Séparateur
         sep = QFrame()
-        sep.setFixedHeight(1)
-        sep.setStyleSheet(f"background: {_BORDER}; border: none;")
+        sep.setFixedHeight(2)
+        sep.setStyleSheet(
+            "border-top: 1px solid #808080; border-bottom: 1px solid #FFFFFF;"
+            "border-left: none; border-right: none;"
+        )
         root.addWidget(sep)
 
-        # Contenu détaillé
         detail_lbl = QLabel(detail)
         detail_lbl.setWordWrap(True)
         detail_lbl.setStyleSheet(
-            f"color: {_SUB}; font-size: 12px; line-height: 1.6;"
+            "color: #000000; font-size: 11px; background: transparent;"
         )
         root.addWidget(detail_lbl)
 
-        # Bouton fermer
         close_btn = QPushButton("Fermer")
-        close_btn.setFixedSize(80, 30)
-        close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        close_btn.setStyleSheet(
-            f"QPushButton {{ background: {_CARD}; border: 1px solid {_BORDER};"
-            f"  border-radius: 8px; color: {_SUB}; font-size: 11px; }}"
-            f"QPushButton:hover {{ background: {_HOVER}; color: {_TEXT}; }}"
-        )
+        close_btn.setFixedSize(80, 26)
+        close_btn.setCursor(Qt.CursorShape.ArrowCursor)
         close_btn.clicked.connect(self.accept)
         root.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignRight)
 
@@ -177,7 +160,7 @@ class _InfoDialog(QDialog):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class _SmartWorker(QThread):
-    result = pyqtSignal(list)   # list[dict]
+    result = pyqtSignal(list)
     error  = pyqtSignal(str)
 
     def run(self):
@@ -199,10 +182,8 @@ class _SmartWorker(QThread):
                 timeout=20,
             )
             data = _json.loads(raw.strip())
-            # ConvertTo-Json retourne un objet si 1 disque, liste si plusieurs
             if isinstance(data, dict):
                 data = [data]
-            # Normaliser les clés vers les mêmes noms qu'avant
             disks = []
             for d in data:
                 disks.append({
@@ -228,22 +209,21 @@ class _SmartDialog(QDialog):
     def __init__(self, disks: list[dict], parent=None):
         super().__init__(parent)
         self.setWindowTitle("Lumina — Rapport S.M.A.R.T.")
-        self.setFixedSize(620, 510)
+        self.setFixedSize(600, 500)
         self.setStyleSheet(
-            "QDialog { background: #0F172A; }"
-            "QLabel  { font-family: 'Inter'; }"
+            "QDialog { background-color: #C0C0C0; }"
+            "QLabel  { font-family: 'Work Sans', Arial; }"
         )
         self._disks = disks
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(28, 24, 28, 20)
-        root.setSpacing(14)
+        root.setContentsMargins(12, 10, 12, 10)
+        root.setSpacing(10)
 
-        # Titre
         hdr_row = QHBoxLayout()
-        title = QLabel("📊  Rapport S.M.A.R.T.")
+        title = QLabel("Rapport S.M.A.R.T.")
         title.setStyleSheet(
-            f"color: {_TEXT}; font-size: 18px; font-weight: 700;"
+            "color: #000000; font-size: 14px; font-weight: 700; background: transparent;"
         )
         hdr_row.addWidget(title)
         hdr_row.addStretch()
@@ -251,16 +231,9 @@ class _SmartDialog(QDialog):
         if len(disks) > 1:
             self._combo = QComboBox()
             self._combo.setFixedWidth(260)
-            self._combo.setFixedHeight(30)
+            self._combo.setFixedHeight(24)
             for d in disks:
                 self._combo.addItem(d.get("Caption", "—"))
-            self._combo.setStyleSheet(
-                f"QComboBox {{ background: {_CARD}; border: 1px solid {_BORDER};"
-                f"  border-radius: 8px; color: {_SUB}; font-size: 11px; padding: 0 8px; }}"
-                f"QComboBox QAbstractItemView {{ background: #1E293B; color: {_TEXT};"
-                f"  selection-background-color: rgba(59,130,246,0.3); border: 1px solid {_BORDER}; }}"
-                "QComboBox::drop-down { border: none; width: 18px; }"
-            )
             self._combo.currentIndexChanged.connect(self._show_disk)
             hdr_row.addWidget(self._combo)
         else:
@@ -268,36 +241,35 @@ class _SmartDialog(QDialog):
 
         root.addLayout(hdr_row)
 
-        # Zone de contenu (scrollable)
+        sep = QFrame()
+        sep.setFixedHeight(2)
+        sep.setStyleSheet(
+            "border-top: 1px solid #808080; border-bottom: 1px solid #FFFFFF;"
+            "border-left: none; border-right: none;"
+        )
+        root.addWidget(sep)
+
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QFrame.Shape.NoFrame)
         self._scroll.setStyleSheet(
-            "QScrollArea { background: transparent; border: none; }"
+            "QScrollArea { background-color: #C0C0C0; border: none; }"
         )
         self._content_widget = QWidget()
-        self._content_widget.setStyleSheet("background: transparent;")
+        self._content_widget.setStyleSheet("background-color: #C0C0C0;")
         self._content_lay = QVBoxLayout(self._content_widget)
         self._content_lay.setContentsMargins(0, 0, 0, 0)
-        self._content_lay.setSpacing(10)
+        self._content_lay.setSpacing(6)
         self._scroll.setWidget(self._content_widget)
         root.addWidget(self._scroll, stretch=1)
 
-        # Bouton Fermer
         close_btn = QPushButton("Fermer")
-        close_btn.setFixedSize(90, 32)
-        close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        close_btn.setStyleSheet(
-            f"QPushButton {{ background: {_CARD}; border: 1px solid {_BORDER};"
-            f"  border-radius: 8px; color: {_SUB}; font-size: 12px; }}"
-            f"QPushButton:hover {{ background: {_HOVER}; color: {_TEXT}; }}"
-        )
+        close_btn.setFixedSize(80, 26)
+        close_btn.setCursor(Qt.CursorShape.ArrowCursor)
         close_btn.clicked.connect(self.accept)
         root.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignRight)
 
         self._show_disk(0)
-
-    # ── Affichage d'un disque ─────────────────────────────────────────────────
 
     def _show_disk(self, idx: int):
         while self._content_lay.count():
@@ -311,93 +283,89 @@ class _SmartDialog(QDialog):
             return
         disk = self._disks[idx]
 
-        # ── Bannière de statut ────────────────────────────────────────────────
-        status   = disk.get("Status", "Unknown") or "Unknown"
-        ok       = (status.upper() == "OK")
-        s_col    = _OK if ok else (_ERR if "FAIL" in status.upper() else _WARN)
-        s_bg     = "rgba(52,199,89,0.08)"  if ok else "rgba(239,68,68,0.08)"
-        s_border = "rgba(52,199,89,0.25)"  if ok else "rgba(239,68,68,0.25)"
-        s_icon   = "✅" if ok else "❌"
+        status = disk.get("Status", "Unknown") or "Unknown"
+        ok     = (status.upper() == "OK")
+        s_col  = _OK if ok else (_ERR if "FAIL" in status.upper() else _WARN)
 
         banner = QFrame()
+        banner.setFixedHeight(50)
         banner.setStyleSheet(
-            f"QFrame {{ background: {s_bg}; border: 1px solid {s_border}; border-radius: 12px; }}"
+            "QFrame {"
+            "  background-color: #C0C0C0;"
+            "  border-top: 2px solid #FFFFFF; border-left: 2px solid #FFFFFF;"
+            "  border-bottom: 2px solid #808080; border-right: 2px solid #808080;"
+            "}"
         )
         ban_lay = QHBoxLayout(banner)
-        ban_lay.setContentsMargins(20, 14, 20, 14)
-        ban_lay.setSpacing(14)
+        ban_lay.setContentsMargins(12, 8, 12, 8)
+        ban_lay.setSpacing(12)
 
-        ico_lbl = QLabel(s_icon)
-        ico_lbl.setStyleSheet("font-size: 22px; background: transparent;")
-        ban_lay.addWidget(ico_lbl)
-
-        txt_col = QVBoxLayout()
-        txt_col.setSpacing(2)
-        lbl_top = QLabel("ÉTAT S.M.A.R.T.")
+        lbl_top = QLabel("ETAT S.M.A.R.T.")
         lbl_top.setStyleSheet(
-            f"color: {_MUTED}; font-size: 10px; font-weight: 700;"
-            "letter-spacing: 1px; background: transparent;"
+            "color: #808080; font-size: 10px; font-weight: 700; background: transparent;"
         )
         lbl_val = QLabel(status)
         lbl_val.setStyleSheet(
-            f"color: {s_col}; font-size: 20px; font-weight: 700; background: transparent;"
+            f"color: {s_col}; font-size: 14px; font-weight: 700; background: transparent;"
         )
-        txt_col.addWidget(lbl_top)
-        txt_col.addWidget(lbl_val)
-        ban_lay.addLayout(txt_col, stretch=1)
+        ban_lay.addWidget(lbl_top)
+        ban_lay.addWidget(lbl_val)
 
         predict = disk.get("PredictFailure", "")
         if predict and predict.upper() == "TRUE":
-            warn_lbl = QLabel("⚠  Panne imminente prédite")
+            warn_lbl = QLabel("PANNE IMMINENTE PREDITE")
             warn_lbl.setStyleSheet(
                 f"color: {_ERR}; font-size: 11px; font-weight: 700; background: transparent;"
             )
             ban_lay.addWidget(warn_lbl)
 
+        ban_lay.addStretch()
         self._content_lay.addWidget(banner)
 
-        # ── Grille de propriétés ──────────────────────────────────────────────
         size_bytes = int(disk.get("Size", 0) or 0)
         size_str   = f"{size_bytes / (1024 ** 3):.1f} Go" if size_bytes else "—"
 
         props = [
-            ("💾", "Modèle",           disk.get("Caption",          "—") or "—"),
-            ("🔑", "Numéro de série",  disk.get("SerialNumber",     "—") or "—"),
-            ("🔌", "Interface",        disk.get("InterfaceType",    "—") or "—"),
-            ("📏", "Capacité",         size_str),
-            ("💿", "Type de média",    disk.get("MediaType",        "—") or "—"),
-            ("🔧", "Révision firmware",disk.get("FirmwareRevision", "—") or "—"),
-            ("📂", "Partitions",       disk.get("Partitions",       "—") or "—"),
+            ("Modele",           disk.get("Caption",          "—") or "—"),
+            ("Numero de serie",  disk.get("SerialNumber",     "—") or "—"),
+            ("Interface",        disk.get("InterfaceType",    "—") or "—"),
+            ("Capacite",         size_str),
+            ("Type de media",    disk.get("MediaType",        "—") or "—"),
+            ("Revision firmware",disk.get("FirmwareRevision", "—") or "—"),
+            ("Partitions",       disk.get("Partitions",       "—") or "—"),
         ]
 
         grid = QGridLayout()
-        grid.setSpacing(10)
-        for i, (icon, label, value) in enumerate(props):
+        grid.setSpacing(6)
+        for i, (label, value) in enumerate(props):
             card = QFrame()
+            card.setFixedHeight(52)
             card.setStyleSheet(
-                f"QFrame {{ background: {_CARD}; border: 1px solid {_BORDER};"
-                "  border-radius: 10px; }}"
+                "QFrame {"
+                "  background-color: #C0C0C0;"
+                "  border-top: 2px solid #FFFFFF; border-left: 2px solid #FFFFFF;"
+                "  border-bottom: 2px solid #808080; border-right: 2px solid #808080;"
+                "}"
             )
             c_lay = QVBoxLayout(card)
-            c_lay.setContentsMargins(14, 10, 14, 10)
-            c_lay.setSpacing(4)
+            c_lay.setContentsMargins(10, 6, 10, 6)
+            c_lay.setSpacing(2)
 
-            lbl_h = QLabel(f"{icon}  {label.upper()}")
+            lbl_h = QLabel(label.upper())
             lbl_h.setStyleSheet(
-                f"color: {_MUTED}; font-size: 9px; font-weight: 700;"
-                "letter-spacing: 0.8px; background: transparent;"
+                "color: #808080; font-size: 9px; font-weight: 700; background: transparent;"
             )
             lbl_v = QLabel(value)
             lbl_v.setWordWrap(True)
             lbl_v.setStyleSheet(
-                f"color: {_TEXT}; font-size: 12px; font-weight: 600; background: transparent;"
+                "color: #000000; font-size: 11px; font-weight: 600; background: transparent;"
             )
             c_lay.addWidget(lbl_h)
             c_lay.addWidget(lbl_v)
             grid.addWidget(card, i // 2, i % 2)
 
         grid_w = QWidget()
-        grid_w.setStyleSheet("background: transparent;")
+        grid_w.setStyleSheet("background-color: #C0C0C0;")
         grid_w.setLayout(grid)
         self._content_lay.addWidget(grid_w)
         self._content_lay.addStretch()
@@ -417,135 +385,82 @@ class _SmartDialog(QDialog):
 class _ToolCard(QFrame):
     def __init__(
         self,
-        icon: str,
         title: str,
         desc: str,
         badge: str,
-        badge_color: str,
         available: bool = False,
         action=None,
         detail: str = "",
         parent=None,
     ):
         super().__init__(parent)
-        self._hovered = False
-        self.setFixedHeight(100)
-        self._set_style(False)
-        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.setFixedHeight(72)
+        self.setStyleSheet(
+            "_ToolCard {"
+            "  background-color: #C0C0C0;"
+            "  border-top: 2px solid #FFFFFF; border-left: 2px solid #FFFFFF;"
+            "  border-bottom: 2px solid #808080; border-right: 2px solid #808080;"
+            "}"
+        )
 
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(20, 16, 20, 16)
-        lay.setSpacing(18)
+        lay.setContentsMargins(12, 10, 12, 10)
+        lay.setSpacing(12)
 
-        # Icône avec couleur du badge
-        # Convertir hex en rgba avec 20% opacité
-        def _hex_to_rgba20(hex_col: str) -> str:
-            h = hex_col.lstrip("#")
-            r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-            return f"rgba({r},{g},{b},0.15)"
-
-        ico = QLabel(icon)
-        ico.setFixedSize(44, 44)
-        ico.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        ico.setStyleSheet(
-            f"font-size: 22px; background: {_hex_to_rgba20(badge_color)};"
-            f"color: {badge_color}; border-radius: 10px;"
-        )
-        lay.addWidget(ico)
-
-        # Texte
         txt = QVBoxLayout()
-        txt.setSpacing(5)
+        txt.setSpacing(4)
         t = QLabel(title)
         t.setStyleSheet(
-            f"color: {_TEXT}; font-size: 14px; font-weight: 700;"
-            "font-family: 'Inter'; background: transparent;"
+            "color: #000000; font-size: 12px; font-weight: 700;"
+            "font-family: 'Work Sans', Arial; background: transparent;"
         )
         d = QLabel(desc)
         d.setStyleSheet(
-            f"color: {_MUTED}; font-size: 12px;"
-            "font-family: 'Inter'; background: transparent;"
+            "color: #404040; font-size: 11px;"
+            "font-family: 'Work Sans', Arial; background: transparent;"
         )
         txt.addWidget(t)
         txt.addWidget(d)
         lay.addLayout(txt, stretch=1)
 
-        # Badge
         bdg = QLabel(badge)
+        bdg.setFixedHeight(18)
         bdg.setStyleSheet(
-            f"color: {badge_color}; font-size: 10px; font-weight: 700;"
-            "background: transparent; border-radius: 10px; padding: 3px 10px;"
-            f"border: 1px solid {badge_color};"
+            "color: #FFFFFF; font-size: 9px; font-weight: 700;"
+            "background-color: #000080; padding: 0px 6px;"
+            "font-family: 'Work Sans', Arial;"
         )
         lay.addWidget(bdg)
 
-        # Bouton ⓘ
-        info_btn = QPushButton("ⓘ")
-        info_btn.setFixedSize(28, 28)
-        info_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        info_btn = QPushButton("?")
+        info_btn.setFixedSize(22, 22)
+        info_btn.setCursor(Qt.CursorShape.ArrowCursor)
         info_btn.setToolTip("En savoir plus")
-        info_btn.setStyleSheet(
-            f"QPushButton {{ background: transparent; border: 1px solid {_BORDER};"
-            f"  border-radius: 14px; color: {_MUTED}; font-size: 13px; }}"
-            f"QPushButton:hover {{ background: rgba(0,122,255,0.12);"
-            f"  border-color: rgba(0,122,255,0.5); color: {_ACCENT}; }}"
-        )
         info_btn.clicked.connect(
-            lambda checked, ic=icon, ti=title, de=detail:
-                _InfoDialog(ic, ti, de, self).exec()
+            lambda checked, ti=title, de=detail:
+                _InfoDialog(ti, de, self).exec()
         )
         lay.addWidget(info_btn)
 
-        # Bouton action
-        btn = QPushButton("Analyser →" if available else "Bientôt dispo")
-        btn.setFixedSize(120, 32)
-        btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        btn = QPushButton("Analyser" if available else "Bientot dispo")
+        btn.setFixedSize(100, 26)
+        btn.setCursor(Qt.CursorShape.ArrowCursor)
         if available:
-            btn.setStyleSheet(
-                "QPushButton { background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
-                "  stop:0 #adc6ff, stop:1 #4b8eff);"
-                "  border: none; border-radius: 8px; color: #002e69;"
-                "  font-size: 11px; font-weight: 700; }"
-                "QPushButton:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
-                "  stop:0 #c5d8ff, stop:1 #6ba3ff); }"
-            )
             btn.clicked.connect(action)
         else:
+            btn.setEnabled(False)
             btn.setStyleSheet(
-                f"QPushButton {{ background: rgba(255,255,255,0.05); border: none;"
-                f"  border-radius: 8px; color: {_MUTED}; font-size: 11px; }}"
-                f"QPushButton:hover {{ background: rgba(255,255,255,0.08); color: {_TEXT}; }}"
+                "QPushButton {"
+                "  background-color: #C0C0C0; color: #808080;"
+                "  border-top: 2px solid #FFFFFF; border-left: 2px solid #FFFFFF;"
+                "  border-bottom: 2px solid #808080; border-right: 2px solid #808080;"
+                "}"
             )
-            btn.clicked.connect(lambda checked, t=title: QMessageBox.information(
-                self, "Bientôt disponible",
-                f"« {t} » sera disponible dans une prochaine version de Lumina.\n\n"
-                "Restez à l'affût des mises à jour !",
-            ))
         lay.addWidget(btn)
-
-    def _set_style(self, hovered: bool):
-        if hovered:
-            self.setStyleSheet(
-                f"_ToolCard {{ background: rgba(255,255,255,0.07);"
-                f"  border: 1px solid {_BORDER}; border-radius: 14px;"
-                f"  border-left: 2px solid #adc6ff; }}"
-            )
-        else:
-            self.setStyleSheet(
-                f"_ToolCard {{ background: {_CARD}; border: 1px solid {_BORDER}; border-radius: 14px; }}"
-            )
-
-    def enterEvent(self, e):
-        self._set_style(True)
-        super().enterEvent(e)
-
-    def leaveEvent(self, e):
-        self._set_style(False)
-        super().leaveEvent(e)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  Écran outils
+#  Ecran outils
 # ═══════════════════════════════════════════════════════════════════════════════
 
 ensure_lumina_log()
@@ -556,62 +471,61 @@ _LOGS_DIR = pathlib.Path(__file__).parent.parent.parent / "logs"
 class ToolsScreen(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setStyleSheet("background: transparent;")
+        self.setStyleSheet("background-color: #C0C0C0;")
         self._smart_worker: _SmartWorker | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # En-tête
+        # En-tete
         hdr = QWidget()
-        hdr.setFixedHeight(100)
-        hdr.setStyleSheet("background: transparent;")
-        hr = QHBoxLayout(hdr)
-        hr.setContentsMargins(40, 20, 40, 20)
-        col = QVBoxLayout()
-        col.setSpacing(6)
-        title = QLabel("Outils avancés")
-        title.setStyleSheet(
-            f"color: {_TEXT}; font-size: 22px; font-weight: 700; font-family: 'Inter';"
+        hdr.setFixedHeight(40)
+        hdr.setStyleSheet(
+            "background-color: #C0C0C0; border-bottom: 2px solid #808080;"
         )
-        sub = QLabel("Des outils spécialisés pour les cas de récupération complexes.")
-        sub.setStyleSheet(f"color: {_SUB}; font-size: 13px; font-family: 'Inter';")
-        col.addWidget(title)
-        col.addWidget(sub)
-        hr.addLayout(col)
+        hr = QHBoxLayout(hdr)
+        hr.setContentsMargins(8, 4, 8, 4)
+        title = QLabel("Outils avances")
+        title.setStyleSheet(
+            "color: #000000; font-size: 12px; font-weight: 700;"
+            "font-family: 'Work Sans', Arial; background: transparent;"
+        )
+        hr.addWidget(title)
+        hr.addStretch()
         root.addWidget(hdr)
 
         # Zone scrollable
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        scroll.setStyleSheet("QScrollArea { background-color: #C0C0C0; border: none; }")
 
         cw = QWidget()
-        cw.setStyleSheet("background: transparent;")
+        cw.setStyleSheet("background-color: #C0C0C0;")
         lay = QVBoxLayout(cw)
-        lay.setContentsMargins(40, 0, 40, 40)
-        lay.setSpacing(14)
+        lay.setContentsMargins(12, 12, 12, 12)
+        lay.setSpacing(6)
         lay.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         # Badge info
-        dev_badge = QLabel(
-            "✅  Rapport S.M.A.R.T. et Effacer les logs disponibles  ·  "
-            "🚧  Les autres fonctionnalités arrivent dans une prochaine version."
+        info_lbl = QLabel(
+            "Rapport S.M.A.R.T. et Effacer les logs disponibles  —  "
+            "Les autres fonctionnalites arrivent dans une prochaine version."
         )
-        dev_badge.setWordWrap(True)
-        dev_badge.setStyleSheet(
-            "background: rgba(0,122,255,0.06); border: 1px solid rgba(0,122,255,0.2);"
-            "border-radius: 10px; color: #94A3B8; font-size: 12px; padding: 10px 16px;"
-            "font-family: 'Inter';"
+        info_lbl.setWordWrap(True)
+        info_lbl.setStyleSheet(
+            "background-color: #FFFFFF; color: #000000; font-size: 11px;"
+            "padding: 6px 10px; font-family: 'Work Sans', Arial;"
+            "border-top: 2px solid #808080; border-left: 2px solid #808080;"
+            "border-bottom: 2px solid #FFFFFF; border-right: 2px solid #FFFFFF;"
         )
-        lay.addWidget(dev_badge)
-        lay.addSpacing(8)
+        lay.addWidget(info_lbl)
+        lay.addSpacing(6)
 
-        for icon, title_t, desc, badge, badge_col, available, detail, action_id in _TOOLS:
+        for title_t, desc, badge, available, detail, action_id in _TOOLS:
             action = getattr(self, f"_{action_id}", None) if action_id else None
-            lay.addWidget(_ToolCard(icon, title_t, desc, badge, badge_col, available, action, detail))
+            lay.addWidget(_ToolCard(title_t, desc, badge, available, action, detail))
 
         lay.addStretch()
         scroll.setWidget(cw)
@@ -632,7 +546,7 @@ class ToolsScreen(QWidget):
         if not disks:
             QMessageBox.warning(
                 self, "S.M.A.R.T.",
-                "Aucun disque détecté via wmic.\n"
+                "Aucun disque detecte via wmic.\n"
                 "Assurez-vous de lancer Lumina en tant qu'administrateur.",
             )
             return
@@ -642,7 +556,7 @@ class ToolsScreen(QWidget):
     def _on_smart_error(self, msg: str):
         QMessageBox.critical(
             self, "Erreur S.M.A.R.T.",
-            f"Impossible de lire les données disque :\n{msg}",
+            f"Impossible de lire les donnees disque :\n{msg}",
         )
 
     # ── Purge des logs ────────────────────────────────────────────────────────
@@ -656,10 +570,10 @@ class ToolsScreen(QWidget):
             self,
             "Effacer les logs",
             f"Cette action supprimera :\n"
-            f"  • lumina.log\n"
-            f"  • history.json (réinitialisé à [])\n"
-            f"  • {len(scan_files)} rapport(s) scan_*.json\n\n"
-            "Cette opération est irréversible. Continuer ?",
+            f"  - lumina.log\n"
+            f"  - history.json (reinitialise a [])\n"
+            f"  - {len(scan_files)} rapport(s) scan_*.json\n\n"
+            "Cette operation est irreversible. Continuer ?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -668,20 +582,17 @@ class ToolsScreen(QWidget):
 
         errors: list[str] = []
 
-        # Vider lumina.log
         try:
             if log_path.exists():
                 log_path.write_text("", encoding="utf-8")
         except OSError as e:
             errors.append(f"lumina.log : {e}")
 
-        # Réinitialiser history.json
         try:
             history_path.write_text("[]", encoding="utf-8")
         except OSError as e:
             errors.append(f"history.json : {e}")
 
-        # Supprimer les scan_*.json
         deleted = 0
         for f in scan_files:
             try:
@@ -690,19 +601,19 @@ class ToolsScreen(QWidget):
             except OSError as e:
                 errors.append(f"{f.name} : {e}")
 
-        _log.info("Purge des logs effectuée — %d scan_*.json supprimé(s).", deleted)
+        _log.info("Purge des logs effectuee — %d scan_*.json supprime(s).", deleted)
 
         if errors:
             QMessageBox.warning(
                 self, "Purge partielle",
-                "Certains fichiers n'ont pas pu être supprimés :\n\n"
+                "Certains fichiers n'ont pas pu etre supprimes :\n\n"
                 + "\n".join(errors),
             )
         else:
             QMessageBox.information(
-                self, "Logs effacés",
-                f"Logs purgés avec succès.\n"
-                f"  • lumina.log vidé\n"
-                f"  • history.json réinitialisé\n"
-                f"  • {deleted} rapport(s) scan supprimé(s)",
+                self, "Logs effaces",
+                f"Logs purges avec succes.\n"
+                f"  - lumina.log vide\n"
+                f"  - history.json reinitialise\n"
+                f"  - {deleted} rapport(s) scan supprime(s)",
             )

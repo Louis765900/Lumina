@@ -1,28 +1,20 @@
 """
-Lumina v2.0 — Écran 3 : Cartes SD & Périphériques externes
-Détection automatique des périphériques amovibles, bouton scanner.
+Lumina — Ecran 3 : Cartes SD & Peripheriques externes (style Windows 98)
+Detection automatique des peripheriques amovibles, bouton scanner.
 """
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QCursor
 from PyQt6.QtWidgets import (
-    QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel,
-    QPushButton, QScrollArea, QVBoxLayout, QWidget,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
 )
 
 from app.core.disk_detector import DiskDetector
-
-from app.ui.palette import (
-    ACCENT as _ACCENT,
-    BORDER as _BORDER,
-    CARD as _CARD,
-    HOVER as _HOVER,
-    MUTED as _MUTED,
-    OK as _OK,
-    SUB as _SUB,
-    TEXT as _TEXT,
-    WARN as _WARN,
-)
 
 
 def _is_external(disk: dict) -> bool:
@@ -34,7 +26,7 @@ def _is_external(disk: dict) -> bool:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  Carte de périphérique externe
+#  Carte de peripherique externe (Win98 raised frame)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class _DeviceCard(QFrame):
@@ -43,63 +35,64 @@ class _DeviceCard(QFrame):
     def __init__(self, disk: dict, parent=None):
         super().__init__(parent)
         self._disk = disk
-        self.setFixedHeight(90)
+        self.setFixedHeight(60)
         self.setStyleSheet(
-            f"_DeviceCard {{ background: {_CARD}; border: 1px solid {_BORDER};"
-            "border-radius: 12px; }}"
+            "_DeviceCard {"
+            "  background-color: #C0C0C0;"
+            "  border-top: 2px solid #FFFFFF;"
+            "  border-left: 2px solid #FFFFFF;"
+            "  border-bottom: 2px solid #808080;"
+            "  border-right: 2px solid #808080;"
+            "}"
         )
 
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(20, 16, 20, 16)
-        lay.setSpacing(16)
+        lay.setContentsMargins(8, 6, 8, 6)
+        lay.setSpacing(10)
 
-        # Icône
-        ico = QLabel("💳")
-        ico.setFixedSize(40, 40)
-        ico.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        ico.setStyleSheet(
-            "font-size: 20px; background: rgba(168,85,247,0.15); border-radius: 8px;"
+        # Badge type
+        badge = QLabel("USB")
+        badge.setFixedSize(28, 16)
+        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        badge.setStyleSheet(
+            "background-color: #000080; color: #FFFFFF;"
+            "font-size: 9px; font-weight: 700; font-family: 'Work Sans', Arial;"
         )
-        lay.addWidget(ico)
+        lay.addWidget(badge)
 
         # Infos
         info = QVBoxLayout()
-        info.setSpacing(4)
-        name = disk.get("name", "Périphérique")
+        info.setSpacing(2)
+        name = disk.get("name", "Peripherique")
         n_lbl = QLabel(name)
         n_lbl.setStyleSheet(
-            f"color: {_TEXT}; font-size: 13px; font-weight: 600;"
-            "font-family: 'Inter'; background: transparent;"
+            "color: #000000; font-size: 11px; font-weight: 700;"
+            "font-family: 'Work Sans', Arial; background: transparent;"
         )
 
-        total   = disk.get("size_gb", 0.0)
-        used    = disk.get("used_gb", 0.0)
-        device  = disk.get("device", "")
+        total    = disk.get("size_gb", 0.0)
+        used     = disk.get("used_gb", 0.0)
+        device   = disk.get("device", "")
         size_txt = f"{used:.1f} / {total:.1f} Go" if used > 0 else f"{total:.1f} Go"
-        d_lbl = QLabel(f"{device}  ·  {size_txt}")
+        d_lbl = QLabel(f"{device}  |  {size_txt}")
         d_lbl.setStyleSheet(
-            f"color: {_MUTED}; font-size: 11px;"
-            "font-family: 'SF Mono', Consolas, monospace; background: transparent;"
+            "color: #404040; font-size: 10px;"
+            "font-family: 'Work Sans', Arial; background: transparent;"
         )
         info.addWidget(n_lbl)
         info.addWidget(d_lbl)
         lay.addLayout(info, stretch=1)
 
         # Bouton scanner
-        scan_btn = QPushButton("Scanner →")
-        scan_btn.setFixedSize(100, 32)
-        scan_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        scan_btn.setStyleSheet(
-            f"QPushButton {{ background: {_ACCENT}; color: white; border: none;"
-            "  border-radius: 8px; font-size: 12px; font-weight: 700; }}"
-            "QPushButton:hover { background: #005FCC; }"
-        )
+        scan_btn = QPushButton("Scanner")
+        scan_btn.setFixedSize(70, 24)
+        scan_btn.setCursor(Qt.CursorShape.ArrowCursor)
         scan_btn.clicked.connect(lambda: self.scan_requested.emit(self._disk))
         lay.addWidget(scan_btn)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  État vide
+#  Etat vide
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class _EmptyState(QWidget):
@@ -109,46 +102,36 @@ class _EmptyState(QWidget):
         super().__init__(parent)
         lay = QVBoxLayout(self)
         lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lay.setSpacing(16)
+        lay.setSpacing(12)
 
-        ico = QLabel("💳")
-        ico.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        ico.setStyleSheet("font-size: 52px; background: transparent;")
-        lay.addWidget(ico)
-
-        title = QLabel("Aucun périphérique externe détecté")
+        title = QLabel("Aucun peripherique externe detecte")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet(
-            f"color: {_TEXT}; font-size: 18px; font-weight: 700;"
-            "font-family: 'Inter'; background: transparent;"
+            "color: #000000; font-size: 12px; font-weight: 700;"
+            "font-family: 'Work Sans', Arial; background: transparent;"
         )
         lay.addWidget(title)
 
         sub = QLabel(
-            "Connectez une carte SD, une clé USB ou un appareil photo,\n"
+            "Connectez une carte SD, une cle USB ou un appareil photo,\n"
             "puis actualisez la liste."
         )
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub.setStyleSheet(
-            f"color: {_MUTED}; font-size: 13px;"
-            "font-family: 'Inter'; background: transparent;"
+            "color: #404040; font-size: 11px;"
+            "font-family: 'Work Sans', Arial; background: transparent;"
         )
         lay.addWidget(sub)
 
-        btn = QPushButton("↻  Actualiser")
-        btn.setFixedSize(140, 36)
-        btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        btn.setStyleSheet(
-            f"QPushButton {{ background: {_ACCENT}; color: white; border: none;"
-            "  border-radius: 8px; font-size: 13px; font-weight: 600; }}"
-            "QPushButton:hover { background: #005FCC; }"
-        )
+        btn = QPushButton("Actualiser")
+        btn.setFixedSize(100, 26)
+        btn.setCursor(Qt.CursorShape.ArrowCursor)
         btn.clicked.connect(self.refresh_clicked)
         lay.addWidget(btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  Écran carte SD
+#  Ecran carte SD
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class SdCardScreen(QWidget):
@@ -156,45 +139,32 @@ class SdCardScreen(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setStyleSheet("background: transparent;")
+        self.setStyleSheet("background-color: #C0C0C0;")
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # En-tête
+        # En-tete
         hdr = QWidget()
-        hdr.setFixedHeight(100)
-        hdr.setStyleSheet("background: transparent;")
+        hdr.setFixedHeight(40)
+        hdr.setStyleSheet(
+            "background-color: #C0C0C0; border-bottom: 2px solid #808080;"
+        )
         hr = QHBoxLayout(hdr)
-        hr.setContentsMargins(40, 20, 40, 20)
+        hr.setContentsMargins(8, 4, 8, 4)
 
-        col = QVBoxLayout()
-        col.setSpacing(6)
-        title = QLabel("Cartes SD & Périphériques externes")
+        title = QLabel("Cartes SD & Peripheriques externes")
         title.setStyleSheet(
-            f"color: {_TEXT}; font-size: 22px; font-weight: 700;"
-            "font-family: 'Inter';"
+            "color: #000000; font-size: 12px; font-weight: 700;"
+            "font-family: 'Work Sans', Arial; background: transparent;"
         )
-        sub = QLabel("Récupérez les données de vos clés USB, cartes SD et appareils photos.")
-        sub.setStyleSheet(
-            f"color: {_SUB}; font-size: 13px;"
-            "font-family: 'Inter';"
-        )
-        col.addWidget(title)
-        col.addWidget(sub)
-        hr.addLayout(col)
+        hr.addWidget(title)
         hr.addStretch()
 
-        refresh_btn = QPushButton("↻")
-        refresh_btn.setFixedSize(38, 38)
-        refresh_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        refresh_btn = QPushButton("Actualiser")
+        refresh_btn.setFixedSize(80, 24)
         refresh_btn.setToolTip("Actualiser")
-        refresh_btn.setStyleSheet(
-            f"QPushButton {{ background: {_CARD}; border: 1px solid {_BORDER};"
-            "  border-radius: 19px; color: #FFF; font-size: 18px; }}"
-            f"QPushButton:hover {{ background: rgba(255,255,255,0.1); }}"
-        )
         refresh_btn.clicked.connect(self.refresh)
         hr.addWidget(refresh_btn)
         root.addWidget(hdr)
@@ -203,13 +173,13 @@ class SdCardScreen(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        scroll.setStyleSheet("QScrollArea { background-color: #C0C0C0; border: none; }")
 
         self._content = QWidget()
-        self._content.setStyleSheet("background: transparent;")
+        self._content.setStyleSheet("background-color: #C0C0C0;")
         self._layout = QVBoxLayout(self._content)
-        self._layout.setContentsMargins(40, 0, 40, 40)
-        self._layout.setSpacing(16)
+        self._layout.setContentsMargins(8, 8, 8, 8)
+        self._layout.setSpacing(6)
         self._layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         scroll.setWidget(self._content)

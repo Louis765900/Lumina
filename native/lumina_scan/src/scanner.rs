@@ -100,7 +100,7 @@ pub fn scan_image<F>(
 where
     F: FnMut(ScanEvent) -> Result<(), ScanError>,
 {
-    if command.source.kind != "image" {
+    if command.source.kind != "image" && command.source.kind != "device" {
         return Err(ScanError::UnsupportedSource(command.source.kind));
     }
 
@@ -697,7 +697,7 @@ mod tests {
     fn rejects_non_image_sources() {
         let path = temp_image(b"abc");
         let mut cmd = command(&path, vec![sig("a", ".a", "61")]);
-        cmd.source.kind = "physical_drive".to_string();
+        cmd.source.kind = "unsupported_kind".to_string();
         let err = scan_image(cmd, StopControl::new(), |_| Ok(())).unwrap_err();
 
         fs::remove_file(path).ok();

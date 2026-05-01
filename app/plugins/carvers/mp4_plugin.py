@@ -44,6 +44,7 @@ _VALID_BRANDS: frozenset[bytes] = frozenset({
     b"F4V ", b"F4P ", b"F4A ", b"F4B ",
     b"heic", b"heix", b"heim", b"heis", b"hevc", b"hevx", b"mif1",
     b"dash", b"msnv",
+    b"crx ", b"cnxs",  # Canon CR3 (Cinema RAW Light)
 })
 
 # Known top-level atoms — used during the structural walk to decide whether

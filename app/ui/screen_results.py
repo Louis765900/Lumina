@@ -4,6 +4,7 @@ Grille de miniatures, filtres par type, recherche, sélection multiple,
 extraction vers un dossier choisi par l'utilisateur.
 """
 
+import contextlib
 import datetime
 import glob
 import hashlib
@@ -14,40 +15,45 @@ import threading
 import unicodedata
 import xml.etree.ElementTree as ET
 
+from PyQt6.QtCore import QRectF, Qt, QThread, pyqtSignal
+from PyQt6.QtGui import (
+    QAction,
+    QColor,
+    QCursor,
+    QFont,
+    QImage,
+    QPainter,
+    QPixmap,
+)
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QFileDialog,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QMessageBox,
+    QProgressBar,
+    QProgressDialog,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
+
 from app.core.recovery import (
     default_recovery_dir,
     ensure_lumina_log,
     persist_recovery_dir,
     validate_recovery_destination,
 )
-from app.ui.palette import (
-    ACCENT_SELECTION as _ACCENT,
-    BORDER as _BORDER,
-    CARD as _CARD,
-    ERR as _ERR,
-    HOVER as _HOVER,
-    MUTED as _MUTED,
-    OK as _OK,
-    SUB as _SUB,
-    TEXT2 as _TEXT,
-    WARN as _WARN,
-)
 
 _HISTORY_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
     "logs", "history.json",
-)
-
-from PyQt6.QtCore import Qt, QRectF, QThread, pyqtSignal
-from PyQt6.QtGui import (
-    QAction, QBrush, QColor, QCursor, QFont, QImage, QLinearGradient, QPainter,
-    QPainterPath, QPen, QPixmap,
-)
-from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QFileDialog, QFrame,
-    QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMenu, QMessageBox,
-    QProgressBar, QProgressDialog, QPushButton, QScrollArea,
-    QVBoxLayout, QWidget,
 )
 
 # ── Logger ───────────────────────────────────────────────────────────────────
@@ -77,6 +83,13 @@ _THUMB_GRAD: dict[str, tuple[str, str]] = {
     "7Z":   ("#8B5CF6", "#6D28D9"), "GZ":   ("#64748B", "#475569"),
     "EXE":  ("#64748B", "#334155"), "DLL":  ("#64748B", "#334155"),
     "SQLITE": ("#60A5FA", "#1D4ED8"),
+    "CAB":  ("#94A3B8", "#64748B"), "SWF":  ("#F87171", "#DC2626"),
+    "WMF":  ("#C084FC", "#7C3AED"), "DWG":  ("#FBBF24", "#D97706"),
+    "RTF":  ("#93C5FD", "#2563EB"), "EML":  ("#6EE7B7", "#059669"),
+    "VCF":  ("#34D399", "#059669"), "ICS":  ("#60A5FA", "#2563EB"),
+    "ORF":  ("#FCD34D", "#F59E0B"), "RW2":  ("#FCD34D", "#D97706"),
+    "RAF":  ("#FCD34D", "#B45309"), "CR3":  ("#F97316", "#EA580C"),
+    "NEF":  ("#FCD34D", "#F59E0B"), "ARW":  ("#FCD34D", "#F59E0B"),
 }
 _THUMB_ICON: dict[str, str] = {
     "JPG": "📸", "JPEG": "📸", "PNG": "🎨", "BMP": "🖼", "GIF": "🎭",
@@ -88,28 +101,54 @@ _THUMB_ICON: dict[str, str] = {
     "PPT": "📋", "PPTX": "📋",
     "ZIP": "📦", "RAR": "📦", "7Z": "📦", "GZ": "📦",
     "EXE": "⚙", "DLL": "⚙", "SQLITE": "🗄", "PST": "📧",
+    "CAB": "📦", "SWF": "🎬", "WMF": "🖼", "DWG": "📐",
+    "RTF": "📝", "EML": "📧", "VCF": "👤", "ICS": "📅",
+    "ORF": "📷", "RW2": "📷", "RAF": "📷", "CR3": "📷",
+    "NEF": "📷", "ARW": "📷", "MKA": "🎵", "APE": "🎵", "WV": "🎵",
 }
 
 # Types d'images pour lesquels Qt peut charger les bytes bruts directement
-_THUMB_IMAGE_TYPES = {"JPG", "JPEG", "PNG", "BMP", "GIF", "WEBP"}
+# TIFF est supporté nativement par Qt6 via libtiff.
+_THUMB_IMAGE_TYPES = {"JPG", "JPEG", "PNG", "BMP", "GIF", "WEBP", "TIFF"}
 
 # Groupes de types pour les filtres
 _TYPE_GROUPS: dict[str, set[str]] = {
-    "Images":    {"JPG","JPEG","PNG","BMP","GIF","TIFF","WEBP","HEIC","PSD","SVG","CR2","NEF"},
-    "Vidéos":    {"MP4","MOV","MKV","AVI","FLV","WMV","MPG","M2TS","3GP"},
-    "Audio":     {"MP3","WAV","FLAC","AAC","OGG","WMA","M4A","AIFF","OPUS"},
-    "Documents": {"PDF","DOC","DOCX","XLS","XLSX","PPT","PPTX","ODT","ODS","TXT","HTML","XML"},
-    "Archives":  {"ZIP","RAR","7Z","GZ","BZ2","XZ","TAR","ISO","EPUB"},
+    "Images":    {"JPG","JPEG","PNG","BMP","GIF","TIFF","WEBP","HEIC","HEIF","PSD","SVG",
+                  "CR2","CR3","NEF","ARW","DNG","ORF","RW2","RAF","PEF","SRW","AI","EPS","INDD",
+                  "WMF"},
+    "Vidéos":    {"MP4","MOV","MKV","AVI","FLV","WMV","MPG","M2TS","3GP","VOB","RM","MXF","MKA"},
+    "Audio":     {"MP3","WAV","FLAC","AAC","OGG","WMA","M4A","AIFF","OPUS","APE","WV"},
+    "Documents": {"PDF","DOC","DOCX","XLS","XLSX","PPT","PPTX","ODT","ODS","TXT",
+                  "HTML","XML","RTF","EML","PST","VCF","ICS","DWG","ACCDB"},
+    "Archives":  {"ZIP","RAR","7Z","GZ","BZ2","XZ","TAR","ISO","EPUB","CAB","SWF"},
     "Autres":    set(),   # tout le reste
 }
+
+_SYSTEM_TYPES: frozenset[str] = frozenset({
+    "EXE", "DLL", "SYS", "MSI", "MSP", "MSU",
+    "OCX", "COM", "SCR", "CPL", "PIF",
+    "INF", "CAT", "INI",
+    "DAT", "LOG", "TMP", "LNK", "PDB",
+})
 
 
 def _normalize(text: str) -> str:
     return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().lower()
 
 
+def _integrity_label(pct: int) -> str:
+    """Human-readable recoverability label for a given integrity percentage."""
+    if pct >= 90:
+        return "Excellent"
+    if pct >= 75:
+        return "Bon"
+    if pct >= 60:
+        return "Partiel"
+    return "Fragmenté"
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
-#  Miniature de fichier récupéré (140 × 160)
+#  Miniature de fichier récupéré (140 x 160)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class FileThumb(QWidget):
@@ -155,18 +194,19 @@ class FileThumb(QWidget):
             name = name[:16] + "…"
         name_lbl = QLabel(name)
         name_lbl.setStyleSheet(
-            f"color: {_TEXT}; font-size: 11px; font-weight: 600;"
-            "font-family: 'Inter'; background: transparent;"
+            "color: #000000; font-size: 10px; font-weight: 700;"
+            "font-family: 'Work Sans', Arial; background: transparent;"
         )
 
         size_kb    = info.get("size_kb", 0)
         size_str   = f"{size_kb / 1024:.1f} Mo" if size_kb >= 1024 else f"{size_kb} Ko"
         integrity  = info.get("integrity", 60)
-        int_color  = _OK if integrity >= 90 else (_ACCENT if integrity >= 60 else _WARN)
-        meta_lbl = QLabel(f"{size_str}  ·  {integrity}%")
+        int_color  = "#008000" if integrity >= 90 else ("#000080" if integrity >= 60 else "#808000")
+        int_lbl_str = _integrity_label(integrity)
+        meta_lbl = QLabel(f"{size_str} {int_lbl_str}")
         meta_lbl.setStyleSheet(
-            f"color: {int_color}; font-size: 10px;"
-            "font-family: 'Inter'; background: transparent;"
+            f"color: {int_color}; font-size: 9px;"
+            "font-family: 'Work Sans', Arial; background: transparent;"
         )
 
         info_lay.addWidget(name_lbl)
@@ -175,38 +215,71 @@ class FileThumb(QWidget):
 
         # ── Case à cocher ─────────────────────────────────────────────────────
         self._chk = QCheckBox(info_area)
-        self._chk.setGeometry(self.W - 26, 4, 20, 20)
+        self._chk.setGeometry(self.W - 20, 4, 16, 16)
         self._chk.setStyleSheet(
-            "QCheckBox::indicator { width: 16px; height: 16px; border-radius: 8px;"
-            "  border: 1.5px solid rgba(255,255,255,0.3);"
-            "  background: rgba(0,0,0,0.4); }"
-            "QCheckBox::indicator:checked { background: #3B82F6; border-color: #3B82F6; }"
+            "QCheckBox::indicator {"
+            "  width: 13px; height: 13px;"
+            "  background-color: #FFFFFF;"
+            "  border-top: 2px solid #808080; border-left: 2px solid #808080;"
+            "  border-bottom: 2px solid #FFFFFF; border-right: 2px solid #FFFFFF;"
+            "}"
+            "QCheckBox::indicator:checked { background-color: #000080; }"
         )
         self._chk.stateChanged.connect(self._on_check)
 
-        # ── Badge "nom d'origine récupéré" (fichiers issus de la MFT) ────────
+        # ── Badge NTFS (fichiers issus de la MFT) ────────────────────────────
         if info.get("source") == "mft":
             fs_tag = info.get("fs", "MFT")
-            badge = QLabel(f"✨ {fs_tag}", thumb_area)
-            badge.setToolTip("Nom d'origine récupéré depuis le système de fichiers")
-            badge.setGeometry(6, 6, 60, 18)
+            badge = QLabel(fs_tag, thumb_area)
+            badge.setToolTip("Nom d'origine recupere depuis le systeme de fichiers")
+            badge.setGeometry(2, 2, 36, 14)
             badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
             badge.setStyleSheet(
-                "background: rgba(52,199,89,0.92); color: #0B1A0E;"
-                "border-radius: 9px; font-size: 9px; font-weight: 700;"
-                "font-family: 'Inter'; padding: 0 4px;"
+                "background-color: #008000; color: #FFFFFF;"
+                "font-size: 8px; font-weight: 700;"
+                "font-family: 'Work Sans', Arial;"
+            )
+
+        # ── Badge statut supprime/actif ───────────────────────────────────────
+        if info.get("deleted"):
+            del_badge = QLabel("DEL", thumb_area)
+            del_badge.setToolTip("Fichier supprime - entree MFT toujours lisible")
+            del_badge.setGeometry(2, 80, 28, 14)
+            del_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            del_badge.setStyleSheet(
+                "background-color: #808000; color: #FFFFFF;"
+                "font-size: 8px; font-weight: 700; font-family: 'Work Sans', Arial;"
+            )
+        elif info.get("source") == "mft" and not info.get("deleted"):
+            act_badge = QLabel("OK", thumb_area)
+            act_badge.setToolTip("Fichier toujours present sur le disque")
+            act_badge.setGeometry(2, 80, 22, 14)
+            act_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            act_badge.setStyleSheet(
+                "background-color: #008000; color: #FFFFFF;"
+                "font-size: 8px; font-weight: 700; font-family: 'Work Sans', Arial;"
             )
 
     def _update_style(self):
         if self._selected:
             self.setStyleSheet(
-                "FileThumb { background: rgba(59,130,246,0.12);"
-                "  border: 1.5px solid #3B82F6; border-radius: 12px; }"
+                "FileThumb {"
+                "  background-color: #000080;"
+                "  border-top: 2px solid #808080;"
+                "  border-left: 2px solid #808080;"
+                "  border-bottom: 2px solid #FFFFFF;"
+                "  border-right: 2px solid #FFFFFF;"
+                "}"
             )
         else:
             self.setStyleSheet(
-                f"FileThumb {{ background: {_CARD};"
-                f"  border: 1px solid {_BORDER}; border-radius: 12px; }}"
+                "FileThumb {"
+                "  background-color: #C0C0C0;"
+                "  border-top: 2px solid #FFFFFF;"
+                "  border-left: 2px solid #FFFFFF;"
+                "  border-bottom: 2px solid #808080;"
+                "  border-right: 2px solid #808080;"
+                "}"
             )
 
     def _on_check(self, state):
@@ -246,12 +319,10 @@ class _GradientThumb(QWidget):
 
     def paintEvent(self, _):
         p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
         w, h = self.width(), self.height()
 
-        path = QPainterPath()
-        path.addRoundedRect(QRectF(0, 0, w, h), 12, 12)
-        p.setClipPath(path)
+        # Win98 flat silver background for thumb
+        p.fillRect(0, 0, w, h, QColor("#C0C0C0"))
 
         if self._pixmap and not self._pixmap.isNull():
             # ── Vraie miniature ──────────────────────────────────────────────
@@ -264,33 +335,13 @@ class _GradientThumb(QWidget):
             y = (h - scaled.height()) // 2
             p.drawPixmap(x, y, scaled)
         else:
-            # ── Dégradé de fond + icône (fallback) ──────────────────────────
-            c1, c2 = _THUMB_GRAD.get(self._ftype, ("#64748B", "#475569"))
-            grad = QLinearGradient(0, 0, w, h)
-            grad.setColorAt(0.0, QColor(c1))
-            grad.setColorAt(1.0, QColor(c2))
-            p.fillPath(path, QBrush(grad))
+            # Win98 flat tile: silver + navy type badge
+            p.fillRect(0, 0, w, h, QColor("#C0C0C0"))
+            p.fillRect(0, h - 18, w, 18, QColor("#000080"))
+            p.setFont(QFont("Work Sans", 8, QFont.Weight.Bold))
+            p.setPen(QColor("#FFFFFF"))
+            p.drawText(QRectF(0, h - 18, w, 18), Qt.AlignmentFlag.AlignCenter, self._ftype)
 
-            icon = _THUMB_ICON.get(self._ftype, "📁")
-            p.setFont(QFont("Segoe UI Emoji", 28))
-            p.setPen(QColor(255, 255, 255, 220))
-            p.drawText(QRectF(0, 0, w, h), Qt.AlignmentFlag.AlignCenter, icon)
-
-        # ── Overlay sombre en bas (commun aux deux modes) ────────────────────
-        dark = QLinearGradient(0, h * 0.5, 0, h)
-        dark.setColorAt(0.0, QColor(0, 0, 0, 0))
-        dark.setColorAt(1.0, QColor(0, 0, 0, 120))
-        p.fillRect(0, int(h * 0.5), w, h, QBrush(dark))
-
-        # ── Badge type ───────────────────────────────────────────────────────
-        p.setFont(QFont("Inter", 9, QFont.Weight.Bold))
-        tw = p.fontMetrics().horizontalAdvance(self._ftype)
-        bx, by = (w - tw - 12) / 2, h - 20
-        p.setBrush(QBrush(QColor(0, 0, 0, 130)))
-        p.setPen(Qt.PenStyle.NoPen)
-        p.drawRoundedRect(QRectF(bx - 4, by - 2, tw + 14, 16), 4, 4)
-        p.setPen(QPen(QColor(255, 255, 255, 200)))
-        p.drawText(QRectF(bx, by, tw + 6, 14), Qt.AlignmentFlag.AlignCenter, self._ftype)
         p.end()
 
 
@@ -460,8 +511,10 @@ class _FileDetailPanel(QWidget):
         super().__init__(parent)
         self.setFixedWidth(self.WIDTH)
         self.setStyleSheet(
-            "_FileDetailPanel { background: #1a1b27;"
-            f"  border-left: 1px solid rgba(255,255,255,0.05); }}"
+            "_FileDetailPanel {"
+            "  background-color: #C0C0C0;"
+            "  border-left: 2px solid #808080;"
+            "}"
         )
         self._info: dict = {}
 
@@ -469,26 +522,35 @@ class _FileDetailPanel(QWidget):
         root.setContentsMargins(18, 16, 18, 20)
         root.setSpacing(0)
 
-        # ── En-tête ───────────────────────────────────────────────────────────
-        hdr = QHBoxLayout()
-        title = QLabel("DÉTAILS")
+        # ── En-tete ───────────────────────────────────────────────────────────
+        hdr_bar = QWidget()
+        hdr_bar.setFixedHeight(20)
+        hdr_bar.setStyleSheet("background-color: #000080; border: 0px;")
+        hdr = QHBoxLayout(hdr_bar)
+        hdr.setContentsMargins(6, 0, 2, 0)
+        title = QLabel("Details")
         title.setStyleSheet(
-            "color: #c1c6d7; font-size: 10px; font-weight: 700; letter-spacing: 1.4px;"
-            "font-family: 'Inter'; background: transparent;"
+            "color: #FFFFFF; font-size: 11px; font-weight: 700;"
+            "font-family: 'Work Sans', Arial; background: transparent;"
         )
         hdr.addWidget(title, stretch=1)
-        close_btn = QPushButton("✕")
-        close_btn.setFixedSize(22, 22)
-        close_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        close_btn = QPushButton("x")
+        close_btn.setFixedSize(17, 15)
+        close_btn.setCursor(Qt.CursorShape.ArrowCursor)
         close_btn.setStyleSheet(
-            f"QPushButton {{ background: transparent; border: none;"
-            f"  color: {_MUTED}; font-size: 11px; border-radius: 11px; }}"
-            f"QPushButton:hover {{ background: rgba(255,255,255,0.08); color: {_TEXT}; }}"
+            "QPushButton {"
+            "  background-color: #C0C0C0; color: #000000;"
+            "  font-size: 9px; font-weight: 700;"
+            "  border-top: 2px solid #FFFFFF;"
+            "  border-left: 2px solid #FFFFFF;"
+            "  border-bottom: 2px solid #808080;"
+            "  border-right: 2px solid #808080;"
+            "}"
         )
         close_btn.clicked.connect(self.closed.emit)
         hdr.addWidget(close_btn)
-        root.addLayout(hdr)
-        root.addSpacing(14)
+        root.addWidget(hdr_bar)
+        root.addSpacing(8)
 
         # ── Miniature ─────────────────────────────────────────────────────────
         self._preview = _GradientThumb("???")
@@ -500,23 +562,27 @@ class _FileDetailPanel(QWidget):
         self._name_lbl = QLabel()
         self._name_lbl.setWordWrap(True)
         self._name_lbl.setStyleSheet(
-            f"color: {_TEXT}; font-size: 13px; font-weight: 700;"
-            "font-family: 'Inter'; background: transparent;"
+            "color: #000000; font-size: 11px; font-weight: 700;"
+            "font-family: 'Work Sans', Arial; background: transparent;"
         )
         root.addWidget(self._name_lbl)
-        root.addSpacing(6)
+        root.addSpacing(4)
 
         # Badge type
         self._type_lbl = QLabel()
+        self._type_lbl.setStyleSheet(
+            "color: #FFFFFF; font-size: 9px; font-weight: 700;"
+            "background-color: #000080; padding: 1px 6px; font-family: 'Work Sans', Arial;"
+        )
         root.addWidget(self._type_lbl)
-        root.addSpacing(14)
+        root.addSpacing(8)
 
-        # Séparateur
+        # Separateur
         sep = QFrame()
-        sep.setFixedHeight(1)
-        sep.setStyleSheet(f"background: {_BORDER}; border: none;")
+        sep.setFixedHeight(2)
+        sep.setStyleSheet("background-color: #808080; border: 0px;")
         root.addWidget(sep)
-        root.addSpacing(14)
+        root.addSpacing(8)
 
         # ── Métadonnées ───────────────────────────────────────────────────────
         self._meta_widget = QWidget()
@@ -527,41 +593,33 @@ class _FileDetailPanel(QWidget):
         root.addWidget(self._meta_widget)
         root.addSpacing(14)
 
-        # ── Barre d'intégrité ─────────────────────────────────────────────────
+        # ── Barre d'integrite ─────────────────────────────────────────────────
         int_row = QHBoxLayout()
-        int_lbl = QLabel("Intégrité")
+        int_lbl = QLabel("Integrite:")
         int_lbl.setStyleSheet(
-            f"color: {_MUTED}; font-size: 10px; font-family: 'Inter'; background: transparent;"
+            "color: #000000; font-size: 10px; font-family: 'Work Sans', Arial; background: transparent;"
         )
-        self._int_pct_lbl = QLabel("—")
+        self._int_pct_lbl = QLabel("-")
         self._int_pct_lbl.setStyleSheet(
-            f"color: {_TEXT}; font-size: 10px; font-weight: 700;"
-            "font-family: 'Inter'; background: transparent;"
+            "color: #000080; font-size: 10px; font-weight: 700;"
+            "font-family: 'Work Sans', Arial; background: transparent;"
         )
         int_row.addWidget(int_lbl, stretch=1)
         int_row.addWidget(self._int_pct_lbl)
         root.addLayout(int_row)
-        root.addSpacing(5)
+        root.addSpacing(4)
 
         self._int_bar = QProgressBar()
-        self._int_bar.setFixedHeight(5)
+        self._int_bar.setFixedHeight(12)
         self._int_bar.setTextVisible(False)
         self._int_bar.setRange(0, 100)
         root.addWidget(self._int_bar)
         root.addStretch()
 
-        # ── Bouton Récupérer ──────────────────────────────────────────────────
-        self._recover_btn = QPushButton("⬇  Récupérer ce fichier")
-        self._recover_btn.setFixedHeight(40)
-        self._recover_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self._recover_btn.setStyleSheet(
-            "QPushButton { background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
-            "  stop:0 #adc6ff, stop:1 #4b8eff);"
-            "  color: #002e69; border: none;"
-            "  border-radius: 10px; font-size: 12px; font-weight: 700; }"
-            "QPushButton:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
-            "  stop:0 #c5d8ff, stop:1 #6ba3ff); }"
-        )
+        # ── Bouton Recuperer ──────────────────────────────────────────────────
+        self._recover_btn = QPushButton("Recuperer ce fichier")
+        self._recover_btn.setFixedHeight(28)
+        self._recover_btn.setCursor(Qt.CursorShape.ArrowCursor)
         self._recover_btn.clicked.connect(lambda: self.recover_requested.emit(self._info))
         root.addWidget(self._recover_btn)
 
@@ -578,12 +636,10 @@ class _FileDetailPanel(QWidget):
         self._name_lbl.setText(info.get("name", "Inconnu"))
 
         # Badge type
-        c1, _ = _THUMB_GRAD.get(ftype, ("#64748B", "#475569"))
         self._type_lbl.setText(ftype)
         self._type_lbl.setStyleSheet(
-            f"color: {c1}; background: transparent; border: 1px solid {c1}60;"
-            "border-radius: 6px; padding: 2px 10px; font-size: 10px; font-weight: 700;"
-            "font-family: 'Inter';"
+            "color: #FFFFFF; background-color: #000080; padding: 1px 6px;"
+            "font-size: 9px; font-weight: 700; font-family: 'Work Sans', Arial;"
         )
 
         # Métadonnées
@@ -598,52 +654,60 @@ class _FileDetailPanel(QWidget):
         device   = info.get("device", "—")
 
         rows: list[tuple[str, str, str]] = [
-            ("📏", "Taille",  size_str),
-            ("💾", "Source",  device),
-            ("📍", "Offset",  f"0x{offset:X}" if offset else "—"),
-            ("🔮", "Mode",    "Simulation" if info.get("simulated") else "Réel"),
+            ("Taille",  size_str),
+            ("Source",  device),
+            ("Offset",  f"0x{offset:X}" if offset else "-"),
+            ("Mode",    "Simulation" if info.get("simulated") else "Reel"),
         ]
         if info.get("source") == "mft":
-            rows.append(("✨", "Origine", f"Nom d'origine ({info.get('fs', 'MFT')})"))
+            deleted = info.get("deleted", False)
+            statut  = "Supprime" if deleted else "Actif"
+            rows.append(("Statut",  statut))
+            rows.append(("Origine", f"Nom d'origine ({info.get('fs', 'MFT')})"))
         if mft_path := info.get("mft_path"):
-            rows.append(("🗂", "Chemin",  mft_path))
+            rows.append(("Chemin",  mft_path))
         if fs_name := info.get("fs"):
-            rows.append(("💿", "Système", fs_name))
+            rows.append(("Systeme", fs_name))
         if (runs := info.get("data_runs")) and len(runs) > 1:
-            rows.append(("🧩", "Runs",    f"{len(runs)} fragments"))
+            rows.append(("Runs",    f"{len(runs)} fragments"))
 
-        for icon, lbl_text, val_text in rows:
+        for lbl_text, val_text in rows:
             row_w = QWidget()
             row_w.setStyleSheet("background: transparent;")
             row_h = QHBoxLayout(row_w)
             row_h.setContentsMargins(0, 0, 0, 0)
             row_h.setSpacing(8)
-            lbl_w = QLabel(f"{icon}  {lbl_text}")
-            lbl_w.setFixedWidth(75)
+            lbl_w = QLabel(f"{lbl_text}:")
+            lbl_w.setFixedWidth(65)
             lbl_w.setStyleSheet(
-                f"color: {_MUTED}; font-size: 11px; font-family: 'Inter'; background: transparent;"
+                "color: #404040; font-size: 10px; font-family: 'Work Sans', Arial; background: transparent;"
             )
             val_w = QLabel(val_text)
             val_w.setWordWrap(True)
             val_w.setStyleSheet(
-                f"color: {_SUB}; font-size: 11px; font-family: 'Inter'; background: transparent;"
+                "color: #000000; font-size: 10px; font-family: 'Work Sans', Arial; background: transparent;"
             )
             row_h.addWidget(lbl_w)
             row_h.addWidget(val_w, stretch=1)
             self._meta_lay.addWidget(row_w)
 
-        # Intégrité — tertiary (#53e16f) haute / primary (#adc6ff) moyenne / error (#ffb4ab) basse
+        # Integrite
         integrity = info.get("integrity", 0)
-        self._int_pct_lbl.setText(f"{integrity}%")
-        int_col = "#53e16f" if integrity >= 90 else ("#adc6ff" if integrity >= 60 else "#ffb4ab")
+        int_text  = _integrity_label(integrity)
+        self._int_pct_lbl.setText(f"{integrity}%  {int_text}")
+        int_col = "#008000" if integrity >= 90 else ("#000080" if integrity >= 60 else "#808000")
         self._int_pct_lbl.setStyleSheet(
             f"color: {int_col}; font-size: 10px; font-weight: 700;"
-            "font-family: 'Inter'; background: transparent;"
+            "font-family: 'Work Sans', Arial; background: transparent;"
         )
         self._int_bar.setValue(integrity)
         self._int_bar.setStyleSheet(
-            "QProgressBar { background: rgba(255,255,255,0.08); border: none; border-radius: 3px; }"
-            f"QProgressBar::chunk {{ background: {int_col}; border-radius: 3px; }}"
+            "QProgressBar {"
+            "  background-color: #FFFFFF;"
+            "  border-top: 2px solid #808080; border-left: 2px solid #808080;"
+            "  border-bottom: 2px solid #FFFFFF; border-right: 2px solid #FFFFFF;"
+            "}"
+            f"QProgressBar::chunk {{ background-color: {int_col}; }}"
         )
         self.show()
 
@@ -655,70 +719,66 @@ class _FileDetailPanel(QWidget):
 class ResultsScreen(QWidget):
     new_scan_requested = pyqtSignal()
 
+    _PAGE_SIZE = 500
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setStyleSheet("background: transparent;")
+        self.setStyleSheet("background-color: #C0C0C0;")
 
         self._all_files: list[dict]      = []
         self._thumbs:    list[FileThumb]  = []
         self._active_filter  = "Tous"
         self._search_text    = ""
         self._sort_key       = "integrity"
+        self._hide_system    = False
         self._thumb_loader: _ThumbnailLoader | None = None
+        self._displayed_count: int = 0
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # ── Barre d'en-tête ───────────────────────────────────────────────────
+        # ── Barre d'en-tete Win98 ─────────────────────────────────────────────
         topbar = QWidget()
-        topbar.setFixedHeight(70)
-        topbar.setStyleSheet("background: transparent;")
+        topbar.setFixedHeight(44)
+        topbar.setStyleSheet(
+            "background-color: #C0C0C0;"
+            "border-bottom: 2px solid #808080;"
+        )
         tb = QHBoxLayout(topbar)
-        tb.setContentsMargins(40, 12, 40, 12)
+        tb.setContentsMargins(8, 4, 8, 4)
+        tb.setSpacing(6)
 
-        title_col = QVBoxLayout()
-        title_col.setSpacing(3)
-        self._title_lbl = QLabel("Fichiers récupérables")
+        self._title_lbl = QLabel("Fichiers recuperables")
         self._title_lbl.setStyleSheet(
-            f"color: {_TEXT}; font-size: 20px; font-weight: 700;"
-            "font-family: 'Inter'; background: transparent;"
+            "color: #000000; font-size: 12px; font-weight: 700;"
+            "font-family: 'Work Sans', Arial; background: transparent;"
         )
         self._count_lbl = QLabel("")
         self._count_lbl.setStyleSheet(
-            f"color: {_SUB}; font-size: 13px;"
-            "font-family: 'Inter'; background: transparent;"
+            "color: #404040; font-size: 10px;"
+            "font-family: 'Work Sans', Arial; background: transparent;"
         )
-        title_col.addWidget(self._title_lbl)
-        title_col.addWidget(self._count_lbl)
-        tb.addLayout(title_col)
+        tb.addWidget(self._title_lbl)
+        tb.addSpacing(8)
+        tb.addWidget(self._count_lbl)
         tb.addStretch()
 
         # Barre de recherche
         self._search = QLineEdit()
-        self._search.setPlaceholderText("🔍  Rechercher…")
-        self._search.setFixedSize(220, 34)
+        self._search.setPlaceholderText("Rechercher...")
+        self._search.setFixedSize(180, 24)
         self._search.textChanged.connect(self._on_search)
         tb.addWidget(self._search)
-        tb.addSpacing(16)
 
-        # Bouton "Exporter le rapport" avec menu déroulant HTML / DFXML
-        export_btn = QPushButton("📄  Rapport  ▾")
-        export_btn.setFixedSize(120, 34)
-        export_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        # Bouton "Exporter le rapport" avec menu HTML / DFXML
+        export_btn = QPushButton("Rapport")
+        export_btn.setFixedSize(70, 24)
+        export_btn.setCursor(Qt.CursorShape.ArrowCursor)
         export_btn.setStyleSheet(
-            f"QPushButton {{ background: transparent; border: 1px solid {_BORDER};"
-            f"  border-radius: 8px; color: {_SUB}; font-size: 12px; font-weight: 500; }}"
-            f"QPushButton:hover {{ background: {_HOVER}; color: {_TEXT}; }}"
-            f"QPushButton::menu-indicator {{ width: 0; image: none; }}"
+            "QPushButton::menu-indicator { width: 0; image: none; }"
         )
         export_menu = QMenu(export_btn)
-        export_menu.setStyleSheet(
-            f"QMenu {{ background: #111827; border: 1px solid {_BORDER};"
-            f"  border-radius: 8px; padding: 6px; color: {_TEXT}; font-size: 12px; }}"
-            f"QMenu::item {{ padding: 8px 18px; border-radius: 6px; }}"
-            f"QMenu::item:selected {{ background: {_HOVER}; color: {_TEXT}; }}"
-        )
         act_html = QAction("Export HTML", export_menu)
         act_html.triggered.connect(self._on_export)
         export_menu.addAction(act_html)
@@ -729,81 +789,71 @@ class ResultsScreen(QWidget):
 
         export_btn.setMenu(export_menu)
         tb.addWidget(export_btn)
-        tb.addSpacing(8)
 
         # Bouton "Nouveau scan"
-        new_btn = QPushButton("← Nouveau scan")
-        new_btn.setFixedSize(130, 34)
-        new_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        new_btn.setStyleSheet(
-            f"QPushButton {{ background: transparent; border: 1px solid {_BORDER};"
-            f"  border-radius: 8px; color: {_SUB}; font-size: 12px; font-weight: 500; }}"
-            f"QPushButton:hover {{ background: {_HOVER}; color: {_TEXT}; }}"
-        )
+        new_btn = QPushButton("Nouveau scan")
+        new_btn.setFixedSize(90, 24)
+        new_btn.setCursor(Qt.CursorShape.ArrowCursor)
         new_btn.clicked.connect(self.new_scan_requested)
         tb.addWidget(new_btn)
 
         root.addWidget(topbar)
 
-        # ── Filtres ───────────────────────────────────────────────────────────
+        # ── Filtres Win98 ─────────────────────────────────────────────────────
         filter_bar = QWidget()
-        filter_bar.setFixedHeight(46)
-        filter_bar.setStyleSheet("background: transparent;")
+        filter_bar.setFixedHeight(34)
+        filter_bar.setStyleSheet(
+            "background-color: #C0C0C0; border-bottom: 1px solid #808080;"
+        )
         fb = QHBoxLayout(filter_bar)
-        fb.setContentsMargins(40, 4, 40, 4)
-        fb.setSpacing(8)
+        fb.setContentsMargins(6, 4, 6, 4)
+        fb.setSpacing(4)
 
         self._filter_btns: dict[str, QPushButton] = {}
-        for label in ("Tous", "Images", "Vidéos", "Audio", "Documents", "Archives", "Autres"):
+        for label in ("Tous", "Images", "Videos", "Audio", "Documents", "Archives", "Autres"):
             btn = QPushButton(label)
-            btn.setFixedHeight(28)
-            btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-            btn.clicked.connect(lambda _, l=label: self._set_filter(l))
+            btn.setFixedHeight(22)
+            btn.setCursor(Qt.CursorShape.ArrowCursor)
+            btn.clicked.connect(lambda _, lbl=label: self._set_filter(lbl))
             self._filter_btns[label] = btn
             fb.addWidget(btn)
+
+        # Bouton masquer fichiers systeme
+        self._sys_toggle = QPushButton("Masq. systeme")
+        self._sys_toggle.setFixedHeight(22)
+        self._sys_toggle.setCheckable(True)
+        self._sys_toggle.setCursor(Qt.CursorShape.ArrowCursor)
+        self._sys_toggle.setToolTip("Masquer les fichiers systeme (EXE, DLL, SYS, TMP...)")
+        self._sys_toggle.clicked.connect(self._on_sys_toggle)
+        fb.addWidget(self._sys_toggle)
 
         fb.addStretch()
 
         # Tri
-        sort_lbl = QLabel("Trier :")
-        sort_lbl.setStyleSheet(f"color: {_MUTED}; font-size: 11px; font-family: 'Inter'; background: transparent;")
+        sort_lbl = QLabel("Trier:")
+        sort_lbl.setStyleSheet(
+            "color: #000000; font-size: 10px; font-family: 'Work Sans', Arial; background: transparent;"
+        )
         fb.addWidget(sort_lbl)
 
         self._sort_combo = QComboBox()
-        self._sort_combo.addItems(["Intégrité ↓", "Taille ↓", "Nom A→Z", "Type"])
-        self._sort_combo.setFixedHeight(28)
-        self._sort_combo.setFixedWidth(120)
-        self._sort_combo.setStyleSheet(
-            f"QComboBox {{ background: {_CARD}; border: 1px solid {_BORDER};"
-            f"  border-radius: 8px; color: {_SUB}; font-size: 11px; padding: 0 8px; }}"
-            f"QComboBox:hover {{ border-color: rgba(59,130,246,0.5); color: {_TEXT}; }}"
-            "QComboBox::drop-down { border: none; width: 18px; }"
-            f"QComboBox QAbstractItemView {{ background: #1E293B; border: 1px solid {_BORDER};"
-            f"  color: {_TEXT}; selection-background-color: rgba(59,130,246,0.3); }}"
-        )
+        self._sort_combo.addItems(["Integrite", "Taille", "Nom A-Z", "Type"])
+        self._sort_combo.setFixedHeight(22)
+        self._sort_combo.setFixedWidth(90)
         self._sort_combo.currentIndexChanged.connect(self._on_sort_changed)
         fb.addWidget(self._sort_combo)
-        fb.addSpacing(12)
+        fb.addSpacing(8)
 
-        # Sélection / déselection
-        self._sel_all_btn = QPushButton("Tout sélectionner")
-        self._sel_all_btn.setFixedHeight(28)
-        self._sel_all_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        # Selection / deselection
+        self._sel_all_btn = QPushButton("Tout selectionner")
+        self._sel_all_btn.setFixedHeight(22)
+        self._sel_all_btn.setCursor(Qt.CursorShape.ArrowCursor)
         self._sel_all_btn.clicked.connect(self._select_all)
         fb.addWidget(self._sel_all_btn)
 
-        self._recover_btn = QPushButton("⬇  Récupérer")
-        self._recover_btn.setFixedSize(130, 30)
-        self._recover_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self._recover_btn.setStyleSheet(
-            "QPushButton { background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
-            "  stop:0 #adc6ff, stop:1 #4b8eff);"
-            "  color: #002e69; border: none;"
-            "  border-radius: 8px; font-size: 12px; font-weight: 700; }"
-            "QPushButton:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
-            "  stop:0 #c5d8ff, stop:1 #6ba3ff); }"
-            "QPushButton:disabled { background: rgba(173,198,255,0.2); color: rgba(0,46,105,0.4); }"
-        )
+        self._recover_btn = QPushButton("Recuperer")
+        self._recover_btn.setFixedSize(80, 22)
+        self._recover_btn.setCursor(Qt.CursorShape.ArrowCursor)
         self._recover_btn.clicked.connect(self._on_recover)
         self._recover_btn.setEnabled(False)
         fb.addWidget(self._recover_btn)
@@ -811,31 +861,31 @@ class ResultsScreen(QWidget):
         self._update_filter_styles()
         root.addWidget(filter_bar)
 
-        # ── Grille de résultats ───────────────────────────────────────────────
+        # ── Grille de resultats ───────────────────────────────────────────────
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setStyleSheet(
-            "QScrollArea { background: transparent; border: none; }"
+            "QScrollArea { background-color: #FFFFFF; border: none; }"
         )
 
         self._grid_widget = QWidget()
-        self._grid_widget.setStyleSheet("background: transparent;")
+        self._grid_widget.setStyleSheet("background-color: #FFFFFF;")
         self._grid = QGridLayout(self._grid_widget)
-        self._grid.setContentsMargins(40, 16, 40, 40)
-        self._grid.setSpacing(16)
+        self._grid.setContentsMargins(8, 8, 8, 8)
+        self._grid.setSpacing(6)
         self._grid.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
         scroll.setWidget(self._grid_widget)
 
-        # ── Panneau de détail latéral ─────────────────────────────────────────
+        # ── Panneau de detail lateral ─────────────────────────────────────────
         self._detail_panel = _FileDetailPanel()
         self._detail_panel.hide()
         self._detail_panel.closed.connect(self._detail_panel.hide)
         self._detail_panel.recover_requested.connect(self._on_detail_recover)
 
         main_area = QWidget()
-        main_area.setStyleSheet("background: transparent;")
+        main_area.setStyleSheet("background-color: #C0C0C0;")
         main_lay = QHBoxLayout(main_area)
         main_lay.setContentsMargins(0, 0, 0, 0)
         main_lay.setSpacing(0)
@@ -843,19 +893,40 @@ class ResultsScreen(QWidget):
         main_lay.addWidget(self._detail_panel)
         root.addWidget(main_area, stretch=1)
 
-        # ── Message "aucun résultat" ───────────────────────────────────────────
-        self._empty_lbl = QLabel("Aucun fichier trouvé pour ce filtre.")
+        # ── Message "aucun resultat" ───────────────────────────────────────────
+        self._empty_lbl = QLabel("Aucun fichier trouve pour ce filtre.")
         self._empty_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty_lbl.setStyleSheet(
-            f"color: {_MUTED}; font-size: 15px; background: transparent;"
+            "color: #808080; font-size: 12px; background: transparent;"
         )
         self._empty_lbl.hide()
         root.addWidget(self._empty_lbl)
+
+        # ── Bouton "Charger X fichiers de plus" ───────────────────────────────
+        self._load_more_btn = QPushButton()
+        self._load_more_btn.setCursor(Qt.CursorShape.ArrowCursor)
+        self._load_more_btn.setFixedHeight(28)
+        self._load_more_btn.clicked.connect(self._load_more)
+        self._load_more_btn.hide()
+
+        load_more_wrap = QWidget()
+        load_more_wrap.setStyleSheet("background-color: #C0C0C0;")
+        load_more_lay = QHBoxLayout(load_more_wrap)
+        load_more_lay.setContentsMargins(8, 4, 8, 4)
+        load_more_lay.addStretch()
+        load_more_lay.addWidget(self._load_more_btn)
+        load_more_lay.addStretch()
+        root.addWidget(load_more_wrap)
+        self._load_more_wrap = load_more_wrap
 
     # ── API publique ──────────────────────────────────────────────────────────
 
     def load_results(self, files: list[dict]):
         self._all_files = files
+        self._displayed_count = 0
+        self._hide_system = False
+        self._sys_toggle.setChecked(False)
+        self._sys_toggle.setStyleSheet("")
         n = len(files)
         if n == 0:
             self._count_lbl.setText("Aucun fichier récupérable trouvé sur ce disque.")
@@ -890,7 +961,7 @@ class ResultsScreen(QWidget):
             with open(scan_path, "w", encoding="utf-8") as fh:
                 json.dump(files, fh, ensure_ascii=False)
             try:
-                with open(_HISTORY_PATH, "r", encoding="utf-8") as fh:
+                with open(_HISTORY_PATH, encoding="utf-8") as fh:
                     history = json.load(fh)
             except Exception:
                 history = []
@@ -903,26 +974,42 @@ class ResultsScreen(QWidget):
             logs_dir = os.path.dirname(_HISTORY_PATH)
             for orphan in glob.glob(os.path.join(logs_dir, "scan_*.json")):
                 if orphan not in referenced and orphan != scan_path:
-                    try:
+                    with contextlib.suppress(OSError):
                         os.remove(orphan)
-                    except OSError:
-                        pass
         except Exception:
             pass   # échec silencieux
 
     # ── Filtres & recherche ───────────────────────────────────────────────────
 
+    def _on_sys_toggle(self, checked: bool):
+        self._hide_system = checked
+        if checked:
+            self._sys_toggle.setStyleSheet(
+                "QPushButton {"
+                "  background-color: #C0C0C0; color: #800000; font-weight: 700;"
+                "  border-top: 2px solid #808080; border-left: 2px solid #808080;"
+                "  border-bottom: 2px solid #FFFFFF; border-right: 2px solid #FFFFFF;"
+                "}"
+            )
+        else:
+            self._sys_toggle.setStyleSheet("")
+        self._displayed_count = 0
+        self._rebuild_grid()
+
     def _set_filter(self, label: str):
         self._active_filter = label
+        self._displayed_count = 0
         self._update_filter_styles()
         self._rebuild_grid()
 
     def _on_search(self, text: str):
         self._search_text = _normalize(text)
+        self._displayed_count = 0
         self._rebuild_grid()
 
     def _on_sort_changed(self, idx: int):
         self._sort_key = ("integrity", "size", "name", "type")[idx]
+        self._displayed_count = 0
         self._rebuild_grid()
 
     def _update_filter_counts(self):
@@ -941,28 +1028,42 @@ class ResultsScreen(QWidget):
                 counts["Autres"] = counts.get("Autres", 0) + 1
         for lbl, btn in self._filter_btns.items():
             c = counts.get(lbl, 0)
-            btn.setText(f"{lbl}  {c}" if c > 0 else lbl)
+            btn.setText(f"{lbl} ({c})" if c > 0 else lbl)
 
     def _update_filter_styles(self):
         for label, btn in self._filter_btns.items():
             if label == self._active_filter:
                 btn.setStyleSheet(
-                    "QPushButton { background: #3B82F6; color: white; border: none;"
-                    "  border-radius: 11px; font-size: 12px; font-weight: 700;"
-                    "  padding: 0 16px; }"
+                    "QPushButton {"
+                    "  background-color: #000080; color: #FFFFFF;"
+                    "  border-top: 2px solid #808080;"
+                    "  border-left: 2px solid #808080;"
+                    "  border-bottom: 2px solid #FFFFFF;"
+                    "  border-right: 2px solid #FFFFFF;"
+                    "  font-size: 10px; font-weight: 700;"
+                    "}"
                 )
             else:
                 btn.setStyleSheet(
-                    f"QPushButton {{ background: {_CARD}; color: {_SUB};"
-                    f"  border: 1px solid rgba(255,255,255,0.05); border-radius: 11px;"
-                    "  font-size: 12px; font-weight: 500; padding: 0 16px; }"
-                    f"QPushButton:hover {{ background: rgba(255,255,255,0.07); color: {_TEXT}; }}"
+                    "QPushButton {"
+                    "  background-color: #C0C0C0; color: #000000;"
+                    "  border-top: 2px solid #FFFFFF;"
+                    "  border-left: 2px solid #FFFFFF;"
+                    "  border-bottom: 2px solid #808080;"
+                    "  border-right: 2px solid #808080;"
+                    "  font-size: 10px;"
+                    "}"
+                    "QPushButton:hover { background-color: #D4D0C8; }"
                 )
 
     def _filtered_files(self) -> list[dict]:
         result = []
         for f in self._all_files:
             ftype = f.get("type", "").upper()
+
+            # Filtre fichiers système
+            if self._hide_system and ftype in _SYSTEM_TYPES:
+                continue
 
             # Filtre par catégorie
             if self._active_filter != "Tous":
@@ -1019,13 +1120,22 @@ class ResultsScreen(QWidget):
             else:
                 self._empty_lbl.setText("Aucun fichier ne correspond à ce filtre ou à cette recherche.")
             self._empty_lbl.show()
+            self._load_more_btn.hide()
             self._recover_btn.setEnabled(False)
             return
 
         self._empty_lbl.hide()
 
+        # Pagination : on affiche au plus _displayed_count fichiers.
+        # Si _displayed_count == 0, on initialise à _PAGE_SIZE.
+        if self._displayed_count == 0:
+            self._displayed_count = self._PAGE_SIZE
+
+        to_display = visible[: self._displayed_count]
+        reste = len(visible) - len(to_display)
+
         cols = 6   # nombre de colonnes
-        for i, info in enumerate(visible):
+        for i, info in enumerate(to_display):
             thumb = FileThumb(info)
             thumb.selection_changed.connect(self._on_selection_changed)
             thumb.detail_requested.connect(self._on_detail_requested)
@@ -1034,6 +1144,15 @@ class ResultsScreen(QWidget):
 
         self._on_selection_changed(False)   # mettre à jour le bouton Récupérer
 
+        # Bouton "Charger X fichiers de plus"
+        if reste > 0:
+            plural = "s" if reste > 1 else ""
+            self._load_more_btn.setText(f"Charger {reste} fichier{plural} de plus")
+            self._load_more_btn.show()
+            self._load_more_wrap.show()
+        else:
+            self._load_more_btn.hide()
+
         # ── Chargement asynchrone des vraies miniatures images ───────────────
         if self._thumb_loader:
             self._thumb_loader.stop()
@@ -1041,7 +1160,7 @@ class ResultsScreen(QWidget):
             self._thumb_loader = None
 
         image_items = [
-            (i, info) for i, info in enumerate(visible)
+            (i, info) for i, info in enumerate(to_display)
             if info.get("type", "").upper() in _THUMB_IMAGE_TYPES
             and not info.get("simulated")
             and info.get("device")
@@ -1050,6 +1169,11 @@ class ResultsScreen(QWidget):
             self._thumb_loader = _ThumbnailLoader(image_items)
             self._thumb_loader.ready.connect(self._on_thumb_ready)
             self._thumb_loader.start()
+
+    def _load_more(self):
+        """Charge une page supplémentaire de FileThumb."""
+        self._displayed_count += self._PAGE_SIZE
+        self._rebuild_grid()
 
     def _on_thumb_ready(self, idx: int, image: QImage):
         """Reçu depuis _ThumbnailLoader — conversion QImage → QPixmap dans le thread principal."""
@@ -1187,7 +1311,7 @@ class ResultsScreen(QWidget):
         msg = QMessageBox(self)
         msg.setWindowTitle("Rapport exporté")
         msg.setIcon(QMessageBox.Icon.Information)
-        msg.setText(f"<b>Rapport enregistré avec succès.</b>")
+        msg.setText("<b>Rapport enregistré avec succès.</b>")
         msg.setInformativeText(path)
         open_btn = msg.addButton("🌐  Ouvrir dans le navigateur", QMessageBox.ButtonRole.ActionRole)
         msg.addButton("Fermer", QMessageBox.ButtonRole.RejectRole)
@@ -1221,16 +1345,16 @@ class ResultsScreen(QWidget):
             return
 
         # ── Namespaces ──────────────────────────────────────────────────────
-        NS_DFXML  = "http://www.forensicswiki.org/wiki/Category:Digital_Forensics_XML"
-        NS_DC     = "http://purl.org/dc/elements/1.1/"
-        NS_LUMINA = "https://lumina.local/dfxml-ext"
-        ET.register_namespace("",       NS_DFXML)
-        ET.register_namespace("dc",     NS_DC)
-        ET.register_namespace("lumina", NS_LUMINA)
+        ns_dfxml  = "http://www.forensicswiki.org/wiki/Category:Digital_Forensics_XML"
+        ns_dc     = "http://purl.org/dc/elements/1.1/"
+        ns_lumina = "https://lumina.local/dfxml-ext"
+        ET.register_namespace("",       ns_dfxml)
+        ET.register_namespace("dc",     ns_dc)
+        ET.register_namespace("lumina", ns_lumina)
 
-        def dfxml(tag: str) -> str:   return f"{{{NS_DFXML}}}{tag}"
-        def dc(tag: str) -> str:      return f"{{{NS_DC}}}{tag}"
-        def lumina(tag: str) -> str:  return f"{{{NS_LUMINA}}}{tag}"
+        def dfxml(tag: str) -> str:   return f"{{{ns_dfxml}}}{tag}"
+        def dc(tag: str) -> str:      return f"{{{ns_dc}}}{tag}"
+        def lumina(tag: str) -> str:  return f"{{{ns_lumina}}}{tag}"
 
         # ── Root ────────────────────────────────────────────────────────────
         root = ET.Element(dfxml("dfxml"), attrib={"xmloutputversion": "1.0"})

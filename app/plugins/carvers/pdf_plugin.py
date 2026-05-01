@@ -39,6 +39,4 @@ class PdfPlugin(BaseCarverPlugin):
         minor = int(m.group(2))
         if major == 1 and 0 <= minor <= 7:
             return True
-        if major == 2 and 0 <= minor <= 9:
-            return True
-        return False
+        return bool(major == 2 and 0 <= minor <= 9)

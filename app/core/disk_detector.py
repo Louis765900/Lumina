@@ -21,7 +21,7 @@ class DiskDetector:
                 if device in seen_devices:
                     continue
                 seen_devices.add(device)
-                
+
                 try:
                     usage = psutil.disk_usage(part.mountpoint)
                     size_bytes = usage.total
@@ -29,10 +29,10 @@ class DiskDetector:
                 except Exception:
                     size_bytes = 0
                     used_bytes = 0
-                    
+
                 size_gb = round(size_bytes / (1024 ** 3), 1)
                 used_gb = round(used_bytes / (1024 ** 3), 1)
-                
+
                 # Try to guess if removable via options
                 is_usb = "removable" in part.opts.lower()
 

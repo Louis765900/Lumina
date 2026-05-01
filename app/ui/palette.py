@@ -1,39 +1,60 @@
 """
-Lumina — Centralized color palette.
+Lumina — Windows 98 color palette.
 
 Import pattern in screen modules:
     from app.ui.palette import CARD as _CARD, BORDER as _BORDER, ...
 """
 
+# ── Win98 core ────────────────────────────────────────────────────────────────
+WIN98_SILVER  = "#C0C0C0"   # window surface / button face
+WIN98_WHITE   = "#FFFFFF"   # highlight edge (top/left bevel)
+WIN98_GRAY    = "#808080"   # shadow edge (bottom/right bevel)
+WIN98_DARK    = "#404040"   # darker shadow for deep recesses
+WIN98_BLACK   = "#000000"   # outer shadow / text
+WIN98_NAVY    = "#000080"   # title bar start, selection background
+WIN98_TEAL    = "#008080"   # desktop background
+WIN98_TITLE1  = "#000080"   # title bar gradient start
+WIN98_TITLE2  = "#1084D0"   # title bar gradient end
+
 # ── Backgrounds ───────────────────────────────────────────────────────────────
-BG      = "#0D0E1A"
-BG2     = "#0F1120"
-SIDEBAR = "#1a1b27"
+BG      = WIN98_TEAL        # desktop canvas
+BG2     = WIN98_SILVER      # window inner surface
+SIDEBAR = WIN98_SILVER      # sidebar panel
 
 # ── Surfaces ──────────────────────────────────────────────────────────────────
-CARD    = "rgba(255,255,255,0.04)"
-BORDER  = "rgba(255,255,255,0.08)"
+CARD    = WIN98_SILVER
+BORDER  = WIN98_GRAY
 
 # ── Text ──────────────────────────────────────────────────────────────────────
-TEXT  = "#FFFFFF"
-TEXT2 = "#F1F5F9"   # slightly warmer white for content-heavy screens
-SUB   = "#94A3B8"
-MUTED = "#64748B"
+TEXT  = WIN98_BLACK
+TEXT2 = WIN98_BLACK
+SUB   = "#404040"
+MUTED = WIN98_GRAY
 
 # ── Accents ───────────────────────────────────────────────────────────────────
-ACCENT       = "#007AFF"    # iOS blue — primary action color
-ACCENT2      = "#34AADC"    # secondary blue used in the scan ring gradient
-ACCENT_HOVER = "#005FCC"    # darker hover state for primary buttons
-
-# Selection highlight (Tailwind blue-500) — used for checkbox/card selection
-ACCENT_SELECTION = "#3B82F6"
+ACCENT            = WIN98_NAVY
+ACCENT2           = WIN98_TITLE2
+ACCENT_HOVER      = "#000060"
+ACCENT_SELECTION  = WIN98_NAVY
 
 # ── Status ────────────────────────────────────────────────────────────────────
-OK     = "#34C759"
-OK_BG  = "rgba(52,199,89,0.1)"
-WARN   = "#F59E0B"
-ERR    = "#EF4444"
+OK     = "#008000"
+OK_BG  = "#C0C0C0"
+WARN   = "#808000"
+ERR    = "#800000"
 
 # ── Interactive ───────────────────────────────────────────────────────────────
-HOVER   = "rgba(255,255,255,0.05)"
-HBORDER = "rgba(0,122,255,0.5)"   # disk card hover border (HomeScreen)
+HOVER   = "#D4D0C8"
+HBORDER = WIN98_NAVY
+
+# ── Bevel helpers (for inline widget styles) ──────────────────────────────────
+# Raised (button default): top/left white, bottom/right gray
+BEVEL_LIGHT  = WIN98_WHITE
+BEVEL_SHADOW = WIN98_GRAY
+
+# Sunken (input / clicked): top/left gray, bottom/right white
+BEVEL_INSET_LIGHT  = WIN98_GRAY
+BEVEL_INSET_SHADOW = WIN98_WHITE
+
+# Title bar text
+TITLE_TEXT = "#FFFFFF"
