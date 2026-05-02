@@ -1050,12 +1050,713 @@ class ExFATParser(BaseFSParser):
         return buf
 
 
+# ── Ext4Parser ────────────────────────────────────────────────────────────────
+
+class Ext4Parser(BaseFSParser):
+    """
+    ext4 filesystem parser. Reads superblock, group descriptors, inodes,
+    and directory entries to enumerate files on ext2/ext3/ext4 volumes.
+
+    Reference: https://ext4.wiki.kernel.org/index.php/Ext4_Disk_Layout
+    Limitations (v1): no journal replay, no inline data, no xattrs,
+    no dir_htree beyond single-level, no encrypt/compress.
+    """
+
+    name = "ext4"
+
+    # Superblock at byte 1024
+    _SB_OFFSET = 1024
+    _EXT4_MAGIC = 0xEF53
+    _EXT4_EXTENTS_FL = 0x00080000  # inode uses extent tree
+    _EXT4_INLINE_DATA_FL = 0x10000000  # inode has inline data (skip)
+    _ROOT_INODE = 2
+
+    def __init__(self, raw_device: str, fd: int) -> None:
+        super().__init__(raw_device, fd)
+        self._block_size: int = 0
+        self._inodes_per_group: int = 0
+        self._inode_size: int = 0
+        self._blocks_per_group: int = 0
+        self._first_data_block: int = 0
+        self._desc_size: int = 0   # group descriptor size (32 or 64)
+        self._ready: bool = False
+
+    # ── BaseFSParser contract ─────────────────────────────────────────────────
+
+    def probe(self) -> bool:
+        """Return True iff a valid ext2/3/4 superblock is found at offset 1024."""
+        try:
+            return self._parse_superblock()
+        except Exception as exc:
+            _log.debug("[Ext4Parser] probe() raised %s — silent fallback.", exc)
+            return False
+
+    def enumerate_files(
+        self,
+        stop_flag: Callable[[], bool],
+        progress_cb: Callable[[int], None],
+        file_found_cb: Callable[[dict], None],
+    ) -> int:
+        if not self._ready and not self.probe():
+            return 0
+        try:
+            count = self._enumerate_from_root(stop_flag, file_found_cb)
+        except Exception as exc:
+            _log.debug("[Ext4Parser] enumerate_files raised %s.", exc)
+            count = 0
+        progress_cb(100)
+        _log.info("[Ext4Parser] ext4 enumeration complete: %d files found.", count)
+        return count
+
+    # ── Superblock parsing ────────────────────────────────────────────────────
+
+    def _parse_superblock(self) -> bool:
+        """Read and validate the ext4 superblock at offset 1024."""
+        data = self._read_raw(0, self._SB_OFFSET + 256)
+        if len(data) < self._SB_OFFSET + 4:
+            return False
+
+        sb = data[self._SB_OFFSET:]
+        if len(sb) < 0x100:
+            return False
+
+        # Magic at superblock[0x38:0x3A]
+        magic = struct.unpack_from("<H", sb, 0x38)[0]
+        if magic != self._EXT4_MAGIC:
+            _log.debug("[Ext4Parser] Bad magic 0x%04X (want 0x%04X).", magic, self._EXT4_MAGIC)
+            return False
+
+        # s_log_block_size at 0x18
+        s_log_block_size = struct.unpack_from("<I", sb, 0x18)[0]
+        block_size = 1024 << s_log_block_size
+
+        if block_size not in (1024, 2048, 4096, 8192):
+            _log.debug("[Ext4Parser] Invalid block size %d.", block_size)
+            return False
+
+        # s_first_data_block at 0x14
+        first_data_block = struct.unpack_from("<I", sb, 0x14)[0]
+
+        # s_blocks_per_group at 0x20
+        blocks_per_group = struct.unpack_from("<I", sb, 0x20)[0]
+
+        # s_inodes_per_group at 0x28
+        inodes_per_group = struct.unpack_from("<I", sb, 0x28)[0]
+        if inodes_per_group == 0:
+            _log.debug("[Ext4Parser] inodes_per_group == 0.")
+            return False
+
+        # s_inode_size at 0x58 (16-bit field)
+        inode_size = struct.unpack_from("<H", sb, 0x58)[0]
+        if inode_size not in (128, 256, 512):
+            _log.debug("[Ext4Parser] Invalid inode size %d.", inode_size)
+            return False
+
+        # s_desc_size at 0xFE (LE u16) — 0 means 32
+        desc_size = struct.unpack_from("<H", sb, 0xFE)[0] if len(sb) >= 0x100 else 0
+        if desc_size == 0:
+            desc_size = 32
+
+        self._block_size = block_size
+        self._blocks_per_group = blocks_per_group
+        self._inodes_per_group = inodes_per_group
+        self._inode_size = inode_size
+        self._first_data_block = first_data_block
+        self._desc_size = desc_size
+        self._ready = True
+
+        _log.info(
+            "[Ext4Parser] ext4 superblock OK — block_size=%d, inode_size=%d, "
+            "inodes_per_group=%d, first_data_block=%d.",
+            block_size, inode_size, inodes_per_group, first_data_block,
+        )
+        return True
+
+    # ── Group descriptor helpers ───────────────────────────────────────────────
+
+    def _get_inode_table_block(self, group: int) -> int:
+        """Return the block number of the inode table for *group*."""
+        gdt_start_block = self._first_data_block + 1
+        gdt_offset = gdt_start_block * self._block_size + group * self._desc_size
+        try:
+            raw = self._read_raw(gdt_offset, max(32, self._desc_size))
+        except OSError:
+            return 0
+        if len(raw) < 12:
+            return 0
+        # bg_inode_table_lo at offset 8 in the group descriptor
+        return struct.unpack_from("<I", raw, 8)[0]
+
+    # ── Inode helpers ──────────────────────────────────────────────────────────
+
+    def _read_inode(self, inode_num: int) -> bytes | None:
+        """Read the raw inode bytes for *inode_num* (1-based)."""
+        group = (inode_num - 1) // self._inodes_per_group
+        index = (inode_num - 1) % self._inodes_per_group
+        inode_table_block = self._get_inode_table_block(group)
+        if inode_table_block == 0:
+            return None
+        inode_offset = inode_table_block * self._block_size + index * self._inode_size
+        try:
+            raw = self._read_raw(inode_offset, self._inode_size)
+        except OSError:
+            return None
+        if len(raw) < 128:
+            return None
+        return raw
+
+    # ── Extent tree ───────────────────────────────────────────────────────────
+
+    def _parse_extents(self, inode_data: bytes) -> list[tuple[int, int]]:
+        """
+        Parse the ext4 extent tree from inode_data[40:100].
+        Returns list of (byte_offset, byte_length) tuples.
+        """
+        ext_header = inode_data[40:52]
+        if len(ext_header) < 12:
+            return []
+        magic = struct.unpack_from("<H", ext_header, 0)[0]
+        if magic != 0xF30A:
+            return []
+        num_entries = struct.unpack_from("<H", ext_header, 2)[0]
+        depth = struct.unpack_from("<H", ext_header, 6)[0]
+
+        runs: list[tuple[int, int]] = []
+        if depth == 0:
+            # Leaf node — entries are ext4_extent structs (12 bytes each)
+            for i in range(min(num_entries, 4)):  # max 4 extents in inode
+                offset = 40 + 12 + i * 12
+                if offset + 12 > len(inode_data):
+                    break
+                ee_block = struct.unpack_from("<I", inode_data, offset)[0]
+                ee_len = struct.unpack_from("<H", inode_data, offset + 4)[0]
+                ee_start_hi = struct.unpack_from("<H", inode_data, offset + 6)[0]
+                ee_start_lo = struct.unpack_from("<I", inode_data, offset + 8)[0]
+                start_block = (ee_start_hi << 32) | ee_start_lo
+                byte_offset = start_block * self._block_size
+                byte_length = ee_len * self._block_size
+                if byte_offset > 0 and byte_length > 0:
+                    runs.append((byte_offset, byte_length))
+        return runs
+
+    # ── Block pointer helpers (non-extent inodes) ─────────────────────────────
+
+    def _block_pointers(self, inode_data: bytes) -> list[tuple[int, int]]:
+        """
+        Read direct block pointers (legacy non-extent inodes).
+        Returns list of (byte_offset, byte_length) for non-zero pointers.
+        """
+        runs: list[tuple[int, int]] = []
+        for i in range(12):  # direct block pointers only
+            bp_offset = 40 + i * 4
+            if bp_offset + 4 > len(inode_data):
+                break
+            blk = struct.unpack_from("<I", inode_data, bp_offset)[0]
+            if blk != 0:
+                runs.append((blk * self._block_size, self._block_size))
+        return runs
+
+    # ── Directory reader ───────────────────────────────────────────────────────
+
+    def _read_dir_block(self, block_num: int) -> list[tuple[int, int, str]]:
+        """
+        Read one directory block and return list of (inode, file_type, name) tuples.
+        Skips entries with inode == 0.
+        """
+        entries: list[tuple[int, int, str]] = []
+        try:
+            raw = self._read_raw(block_num * self._block_size, self._block_size)
+        except OSError:
+            return entries
+
+        pos = 0
+        while pos + 8 <= len(raw):
+            inode = struct.unpack_from("<I", raw, pos)[0]
+            rec_len = struct.unpack_from("<H", raw, pos + 4)[0]
+            if rec_len < 8:
+                break
+            name_len = raw[pos + 6]
+            file_type = raw[pos + 7]
+            if inode != 0 and name_len > 0 and pos + 8 + name_len <= len(raw):
+                try:
+                    name = raw[pos + 8:pos + 8 + name_len].decode("utf-8", errors="replace")
+                except Exception:
+                    name = f"_file_{inode}"
+                entries.append((inode, file_type, name))
+            pos += rec_len
+        return entries
+
+    # ── Main enumeration ───────────────────────────────────────────────────────
+
+    def _enumerate_from_root(
+        self,
+        stop_flag: Callable[[], bool],
+        file_found_cb: Callable[[dict], None],
+    ) -> int:
+        """Walk the directory tree starting from root inode 2."""
+        count = 0
+        visited_dirs: set[int] = set()
+        queue: list[tuple[int, str]] = [(self._ROOT_INODE, "/")]
+
+        while queue and not stop_flag():
+            dir_inode, path_prefix = queue.pop(0)
+            if dir_inode in visited_dirs:
+                continue
+            visited_dirs.add(dir_inode)
+
+            inode_data = self._read_inode(dir_inode)
+            if inode_data is None:
+                continue
+
+            # Get directory block list
+            i_flags = struct.unpack_from("<I", inode_data, 32)[0]
+            use_extents = bool(i_flags & self._EXT4_EXTENTS_FL)
+
+            if use_extents:
+                block_runs = self._parse_extents(inode_data)
+            else:
+                block_runs = self._block_pointers(inode_data)
+
+            for (byte_off, byte_len) in block_runs:
+                if stop_flag():
+                    return count
+                block_num = byte_off // self._block_size
+                entries = self._read_dir_block(block_num)
+                for (entry_inode, file_type, name) in entries:
+                    if stop_flag():
+                        return count
+                    if name in (".", "..") or entry_inode < 11:
+                        continue  # skip system inodes and dots
+                    child_path = path_prefix.rstrip("/") + "/" + name
+
+                    if file_type == 2:  # directory
+                        if entry_inode not in visited_dirs:
+                            queue.append((entry_inode, child_path + "/"))
+                    elif file_type == 1:  # regular file
+                        info = self._make_file_info(entry_inode, name, child_path)
+                        if info is not None:
+                            file_found_cb(info)
+                            count += 1
+
+        return count
+
+    def _make_file_info(self, inode_num: int, name: str, path: str) -> dict | None:
+        """Build a file_info dict for a regular file inode."""
+        try:
+            inode_data = self._read_inode(inode_num)
+            if inode_data is None:
+                return None
+
+            i_size_lo = struct.unpack_from("<I", inode_data, 4)[0]
+            i_size_hi = struct.unpack_from("<I", inode_data, 108)[0] if len(inode_data) >= 112 else 0
+            file_size = (i_size_hi << 32) | i_size_lo
+
+            i_dtime = struct.unpack_from("<I", inode_data, 20)[0]
+            i_links_count = struct.unpack_from("<H", inode_data, 26)[0]
+            i_flags = struct.unpack_from("<I", inode_data, 32)[0]
+
+            is_deleted = i_dtime != 0 or i_links_count == 0
+            integrity = 60 if is_deleted else 85
+
+            use_extents = bool(i_flags & self._EXT4_EXTENTS_FL)
+            if use_extents:
+                data_runs = self._parse_extents(inode_data)
+            else:
+                data_runs = self._block_pointers(inode_data)
+
+            byte_offset = data_runs[0][0] if data_runs else 0
+
+            dot = name.rfind(".")
+            ftype = name[dot + 1:].upper() if 0 < dot < len(name) - 1 else "UNKNOWN"
+
+            return {
+                "name":      name,
+                "type":      ftype,
+                "offset":    byte_offset,
+                "size_kb":   max(1, file_size // 1024),
+                "device":    self._device,
+                "integrity": integrity,
+                "mft_path":  path,
+                "source":    "ext4",
+                "fs":        "ext4",
+                "data_runs": data_runs,
+            }
+        except Exception as exc:
+            _log.debug("[Ext4Parser] _make_file_info(%d) raised %s.", inode_num, exc)
+            return None
+
+    # ── Low-level I/O ──────────────────────────────────────────────────────────
+
+    def _read_raw(self, offset: int, size: int) -> bytes:
+        """Seek + read with retry on partial reads."""
+        os.lseek(self._fd, offset, os.SEEK_SET)
+        buf = b""
+        remaining = size
+        while remaining > 0:
+            chunk = os.read(self._fd, remaining)
+            if not chunk:
+                break
+            buf += chunk
+            remaining -= len(chunk)
+        return buf
+
+
+# ── HFSPlusParser ─────────────────────────────────────────────────────────────
+
+class HFSPlusParser(BaseFSParser):
+    """
+    HFS+ (Mac OS Extended) filesystem parser.
+    Reads the Volume Header and Catalog B-Tree to enumerate files.
+
+    Reference: Apple Technical Note TN1150 "HFS Plus Volume Format"
+    Note: HFS+ uses Big-Endian byte order throughout.
+    Limitations (v1): no HFS+ journal replay, no resource forks,
+    no compression (HFS+ transparent compression), no Unicode normalization.
+    """
+
+    name = "HFS+"
+
+    _VH_OFFSET = 1024    # Volume Header at byte 1024
+    _HFSPLUS_SIG = 0x482B   # "H+"
+    _HFSX_SIG    = 0x4858   # "HX"
+    _BTREE_NODE_SIZE = 512   # default; read from B-tree header
+
+    def __init__(self, raw_device: str, fd: int) -> None:
+        super().__init__(raw_device, fd)
+        self._block_size: int = 0
+        self._total_blocks: int = 0
+        self._ready: bool = False
+
+    # ── BaseFSParser contract ─────────────────────────────────────────────────
+
+    def probe(self) -> bool:
+        """Return True iff the volume has an HFS+ or HFSX signature."""
+        try:
+            return self._parse_volume_header()
+        except Exception as exc:
+            _log.debug("[HFSPlusParser] probe() raised %s — silent fallback.", exc)
+            return False
+
+    def enumerate_files(
+        self,
+        stop_flag: Callable[[], bool],
+        progress_cb: Callable[[int], None],
+        file_found_cb: Callable[[dict], None],
+    ) -> int:
+        if not self._ready and not self.probe():
+            return 0
+        count = 0
+        try:
+            count = self._walk_catalog(stop_flag, file_found_cb)
+        except Exception as exc:
+            _log.debug("[HFSPlusParser] enumerate_files raised %s.", exc)
+        progress_cb(100)
+        _log.info("[HFSPlusParser] HFS+ enumeration complete: %d files found.", count)
+        return count
+
+    # ── Volume Header parsing ──────────────────────────────────────────────────
+
+    def _parse_volume_header(self) -> bool:
+        """Read and validate the HFS+ Volume Header at byte 1024."""
+        data = self._read_raw(self._VH_OFFSET, 162)
+        if len(data) < 162:
+            return False
+
+        # Signature at offset 0 (BE u16)
+        sig = struct.unpack_from(">H", data, 0)[0]
+        if sig not in (self._HFSPLUS_SIG, self._HFSX_SIG):
+            _log.debug("[HFSPlusParser] Bad signature 0x%04X.", sig)
+            return False
+
+        # blockSize at offset 40 (BE u32)
+        block_size = struct.unpack_from(">I", data, 40)[0]
+        if block_size < 512:
+            _log.debug("[HFSPlusParser] Invalid block size %d.", block_size)
+            return False
+        # Must be a power of 2
+        if block_size & (block_size - 1) != 0:
+            _log.debug("[HFSPlusParser] Block size %d not a power of 2.", block_size)
+            return False
+
+        # totalBlocks at offset 44 (BE u32)
+        total_blocks = struct.unpack_from(">I", data, 44)[0]
+        if total_blocks == 0:
+            _log.debug("[HFSPlusParser] totalBlocks == 0.")
+            return False
+
+        self._block_size = block_size
+        self._total_blocks = total_blocks
+        self._ready = True
+        self._vh_data = data  # cache for enumerate_files
+
+        _log.info(
+            "[HFSPlusParser] HFS+/HFSX volume detected (sig=0x%04X, "
+            "blockSize=%d, totalBlocks=%d).",
+            sig, block_size, total_blocks,
+        )
+        return True
+
+    # ── Catalog B-Tree walker ──────────────────────────────────────────────────
+
+    def _walk_catalog(
+        self,
+        stop_flag: Callable[[], bool],
+        file_found_cb: Callable[[dict], None],
+    ) -> int:
+        """Walk the Catalog B-Tree leaf nodes and emit file records."""
+        count = 0
+        try:
+            # Volume Header cached from probe
+            vh = self._vh_data
+
+            # catalogFile fork info starts at offset 96 in Volume Header
+            # extents start at offset 96 + 32 = 128
+            catalog_ext_offset = 128
+            if len(vh) < catalog_ext_offset + 8:
+                return 0
+
+            # First extent: startBlock (BE u32) + blockCount (BE u32)
+            start_block = struct.unpack_from(">I", vh, catalog_ext_offset)[0]
+            if start_block == 0:
+                return 0
+
+            # Read the B-Tree header node (node 0) at start_block * blockSize
+            node0_offset = start_block * self._block_size
+            node0 = self._read_raw(node0_offset, 512)
+            if len(node0) < 256:
+                return 0
+
+            # Node descriptor: 14 bytes
+            # BTHeaderRec follows at offset 14
+            # firstLeafNode at offset 14 + 8 = 22 (BE u32)
+            if len(node0) < 26:
+                return 0
+            first_leaf = struct.unpack_from(">I", node0, 22)[0]
+            node_size = struct.unpack_from(">H", node0, 30)[0]
+            if node_size < 512:
+                node_size = 512
+
+            if first_leaf == 0:
+                return 0
+
+            # Traverse leaf nodes
+            current_node = first_leaf
+            visited_nodes: set[int] = set()
+
+            while current_node != 0 and not stop_flag():
+                if current_node in visited_nodes:
+                    break
+                visited_nodes.add(current_node)
+
+                node_offset = start_block * self._block_size + current_node * node_size
+                try:
+                    node_data = self._read_raw(node_offset, node_size)
+                except OSError:
+                    break
+
+                if len(node_data) < 14:
+                    break
+
+                # Node descriptor
+                flink = struct.unpack_from(">I", node_data, 0)[0]
+                kind = struct.unpack_from(">b", node_data, 8)[0]   # signed byte
+                num_records = struct.unpack_from(">H", node_data, 10)[0]
+
+                if kind != -1:  # not a leaf node
+                    current_node = flink
+                    continue
+
+                # Parse records using the offset table at the end of the node
+                for rec_idx in range(num_records):
+                    if stop_flag():
+                        return count
+                    try:
+                        # Offset table entries are BE u16 at end of node, in reverse
+                        table_entry_offset = node_size - (rec_idx + 1) * 2
+                        if table_entry_offset < 14:
+                            break
+                        rec_offset = struct.unpack_from(">H", node_data, table_entry_offset)[0]
+
+                        if rec_offset + 8 > len(node_data):
+                            continue
+
+                        # Skip key: first 2 bytes = key length (BE u16)
+                        key_len = struct.unpack_from(">H", node_data, rec_offset)[0]
+                        data_offset = rec_offset + 2 + key_len
+                        # Align to 2 bytes
+                        if data_offset % 2 != 0:
+                            data_offset += 1
+
+                        if data_offset + 2 > len(node_data):
+                            continue
+
+                        rec_type = struct.unpack_from(">H", node_data, data_offset)[0]
+                        if rec_type != 0x0002:  # kHFSPlusFileRecord
+                            continue
+
+                        # File record: CNID at data_offset + 8 (BE u32)
+                        if data_offset + 90 > len(node_data):
+                            continue
+
+                        # dataFork at data_offset + 88: logicalSize (BE u64)
+                        logical_size = struct.unpack_from(">Q", node_data, data_offset + 88)[0]
+                        # First extent of dataFork: startBlock at data_offset + 96
+                        if data_offset + 104 > len(node_data):
+                            continue
+                        first_extent_start = struct.unpack_from(">I", node_data, data_offset + 96)[0]
+                        first_extent_count = struct.unpack_from(">I", node_data, data_offset + 100)[0]
+
+                        byte_offset = first_extent_start * self._block_size
+                        byte_length = first_extent_count * self._block_size
+
+                        # Extract name from key (parent ID = 4 bytes, then Pascal string)
+                        if rec_offset + 6 + 2 > len(node_data):
+                            name = "_hfsplus_file"
+                        else:
+                            name_len_chars = struct.unpack_from(">H", node_data, rec_offset + 6)[0]
+                            name_bytes_len = name_len_chars * 2
+                            name_start = rec_offset + 8
+                            if name_start + name_bytes_len <= len(node_data):
+                                try:
+                                    name = node_data[name_start:name_start + name_bytes_len].decode(
+                                        "utf-16-be", errors="replace"
+                                    )
+                                except Exception:
+                                    name = "_hfsplus_file"
+                            else:
+                                name = "_hfsplus_file"
+
+                        dot = name.rfind(".")
+                        ftype = name[dot + 1:].upper() if 0 < dot < len(name) - 1 else "UNKNOWN"
+
+                        file_info: dict = {
+                            "name":      name,
+                            "type":      ftype,
+                            "offset":    byte_offset,
+                            "size_kb":   max(1, logical_size // 1024),
+                            "device":    self._device,
+                            "integrity": 85,
+                            "mft_path":  "/" + name,
+                            "source":    "hfs+",
+                            "fs":        "HFS+",
+                            "data_runs": [(byte_offset, byte_length)] if byte_length > 0 else [],
+                        }
+                        file_found_cb(file_info)
+                        count += 1
+
+                    except Exception as exc:
+                        _log.debug("[HFSPlusParser] Record parse error: %s", exc)
+                        continue
+
+                current_node = flink
+
+        except Exception as exc:
+            _log.debug("[HFSPlusParser] _walk_catalog raised %s.", exc)
+
+        return count
+
+    # ── Low-level I/O ──────────────────────────────────────────────────────────
+
+    def _read_raw(self, offset: int, size: int) -> bytes:
+        """Seek + read with retry on partial reads."""
+        os.lseek(self._fd, offset, os.SEEK_SET)
+        buf = b""
+        remaining = size
+        while remaining > 0:
+            chunk = os.read(self._fd, remaining)
+            if not chunk:
+                break
+            buf += chunk
+            remaining -= len(chunk)
+        return buf
+
+
+# ── APFSParser ────────────────────────────────────────────────────────────────
+
+class APFSParser(BaseFSParser):
+    """
+    APFS (Apple File System) detector.
+
+    probe() identifies APFS containers by reading the NX Superblock.
+    enumerate_files() is not implemented in v1 — APFS recovery uses
+    the FileCarver signature-carving pass instead.
+
+    Reference: Apple File System Reference (apple.com)
+    Note: APFS is Little-Endian throughout.
+    Magic: 'NXSB' (0x4253584E in LE, bytes b'NXSB' at offset 32).
+    """
+
+    name = "APFS"
+
+    _NXSB_MAGIC = b"NXSB"  # at offset 32 in NX Superblock
+    _APSB_MAGIC = b"APSB"  # Volume superblock
+
+    def __init__(self, raw_device: str, fd: int) -> None:
+        super().__init__(raw_device, fd)
+        self._ready: bool = False
+
+    # ── BaseFSParser contract ─────────────────────────────────────────────────
+
+    def probe(self) -> bool:
+        """Return True iff an APFS NX Superblock is found at offset 0."""
+        try:
+            data = self._read_raw(0, 40)
+            if len(data) < 40:
+                return False
+            if data[32:36] != self._NXSB_MAGIC:
+                _log.debug("[APFSParser] Bad NXSB magic.")
+                return False
+            nx_block_size = struct.unpack_from("<I", data, 36)[0]
+            if nx_block_size < 4096:
+                _log.debug("[APFSParser] nx_block_size=%d < 4096.", nx_block_size)
+                return False
+            self._ready = True
+            _log.info("[APFSParser] APFS container detected on %s (block_size=%d).",
+                      self._device, nx_block_size)
+            return True
+        except Exception as exc:
+            _log.debug("[APFSParser] probe() raised %s — silent fallback.", exc)
+            return False
+
+    def enumerate_files(
+        self,
+        stop_flag: Callable[[], bool],
+        progress_cb: Callable[[int], None],
+        file_found_cb: Callable[[dict], None],
+    ) -> int:
+        """
+        APFS enumeration is not implemented in v1.
+        The FileCarver carving pass handles recovery on APFS volumes.
+        """
+        _log.info(
+            "[APFSParser] APFS detected — full enumeration not implemented in v1. "
+            "Using carver."
+        )
+        progress_cb(100)
+        return 0
+
+    # ── Low-level I/O ──────────────────────────────────────────────────────────
+
+    def _read_raw(self, offset: int, size: int) -> bytes:
+        """Seek + read with retry on partial reads."""
+        os.lseek(self._fd, offset, os.SEEK_SET)
+        buf = b""
+        remaining = size
+        while remaining > 0:
+            chunk = os.read(self._fd, remaining)
+            if not chunk:
+                break
+            buf += chunk
+            remaining -= len(chunk)
+        return buf
+
+
 # ── FS registry ───────────────────────────────────────────────────────────────
 
 # Append new BaseFSParser subclasses (Ext4Parser, ApfsParser, …) here. Order
 # matters only if two parsers could probe() True on the same volume — put the
 # most specific first.
-FS_PARSERS: list[type[BaseFSParser]] = [NTFSParser, FAT32Parser, ExFATParser]
+FS_PARSERS: list[type[BaseFSParser]] = [NTFSParser, FAT32Parser, ExFATParser, Ext4Parser, HFSPlusParser, APFSParser]
 
 
 def detect_fs(raw_device: str, fd: int) -> BaseFSParser | None:

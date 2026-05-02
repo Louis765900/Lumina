@@ -6,11 +6,16 @@ requires-python = ">=3.11"
 dependencies = [
     "PyQt6>=6.6.0",
     "psutil>=5.9.0",
+]
+
+[project.scripts]
+lumina = "app.cli.main:main"
+
+[project.optional-dependencies]
+windows = [
     "wmi>=1.5.1",
     "pywin32>=306",
 ]
-
-[project.optional-dependencies]
 dev = [
     "ruff",
     "mypy",

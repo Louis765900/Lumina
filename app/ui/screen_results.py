@@ -44,6 +44,17 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from app.ui.palette import (
+    ACCENT as _ACCENT,
+    BEVEL_INSET_LIGHT as _BEVEL_INSET_LIGHT,
+    BEVEL_INSET_SHADOW as _BEVEL_INSET_SHADOW,
+    BEVEL_LIGHT as _BEVEL_LIGHT,
+    BEVEL_SHADOW as _BEVEL_SHADOW,
+    CARD as _CARD,
+    OK as _OK,
+    TEXT as _TEXT,
+    WARN as _WARN,
+)
 from app.core.recovery import (
     default_recovery_dir,
     ensure_lumina_log,
@@ -194,14 +205,14 @@ class FileThumb(QWidget):
             name = name[:16] + "…"
         name_lbl = QLabel(name)
         name_lbl.setStyleSheet(
-            "color: #000000; font-size: 10px; font-weight: 700;"
+            f"color: {_TEXT}; font-size: 10px; font-weight: 700;"
             "font-family: 'Work Sans', Arial; background: transparent;"
         )
 
         size_kb    = info.get("size_kb", 0)
         size_str   = f"{size_kb / 1024:.1f} Mo" if size_kb >= 1024 else f"{size_kb} Ko"
         integrity  = info.get("integrity", 60)
-        int_color  = "#008000" if integrity >= 90 else ("#000080" if integrity >= 60 else "#808000")
+        int_color  = f"{_OK}" if integrity >= 90 else (f"{_ACCENT}" if integrity >= 60 else f"{_WARN}")
         int_lbl_str = _integrity_label(integrity)
         meta_lbl = QLabel(f"{size_str} {int_lbl_str}")
         meta_lbl.setStyleSheet(
@@ -219,11 +230,11 @@ class FileThumb(QWidget):
         self._chk.setStyleSheet(
             "QCheckBox::indicator {"
             "  width: 13px; height: 13px;"
-            "  background-color: #FFFFFF;"
-            "  border-top: 2px solid #808080; border-left: 2px solid #808080;"
-            "  border-bottom: 2px solid #FFFFFF; border-right: 2px solid #FFFFFF;"
+            f"  background-color: {_BEVEL_LIGHT};"
+            f"  border-top: 2px solid {_BEVEL_SHADOW}; border-left: 2px solid {_BEVEL_SHADOW};"
+            f"  border-bottom: 2px solid {_BEVEL_LIGHT}; border-right: 2px solid {_BEVEL_LIGHT};"
             "}"
-            "QCheckBox::indicator:checked { background-color: #000080; }"
+            f"QCheckBox::indicator:checked { background-color: {_ACCENT}; }"
         )
         self._chk.stateChanged.connect(self._on_check)
 
@@ -235,7 +246,7 @@ class FileThumb(QWidget):
             badge.setGeometry(2, 2, 36, 14)
             badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
             badge.setStyleSheet(
-                "background-color: #008000; color: #FFFFFF;"
+                f"background-color: {_OK}; color: {_BEVEL_LIGHT};"
                 "font-size: 8px; font-weight: 700;"
                 "font-family: 'Work Sans', Arial;"
             )
@@ -247,7 +258,7 @@ class FileThumb(QWidget):
             del_badge.setGeometry(2, 80, 28, 14)
             del_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
             del_badge.setStyleSheet(
-                "background-color: #808000; color: #FFFFFF;"
+                f"background-color: {_WARN}; color: {_BEVEL_LIGHT};"
                 "font-size: 8px; font-weight: 700; font-family: 'Work Sans', Arial;"
             )
         elif info.get("source") == "mft" and not info.get("deleted"):
@@ -256,7 +267,7 @@ class FileThumb(QWidget):
             act_badge.setGeometry(2, 80, 22, 14)
             act_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
             act_badge.setStyleSheet(
-                "background-color: #008000; color: #FFFFFF;"
+                f"background-color: {_OK}; color: {_BEVEL_LIGHT};"
                 "font-size: 8px; font-weight: 700; font-family: 'Work Sans', Arial;"
             )
 
@@ -264,21 +275,21 @@ class FileThumb(QWidget):
         if self._selected:
             self.setStyleSheet(
                 "FileThumb {"
-                "  background-color: #000080;"
-                "  border-top: 2px solid #808080;"
-                "  border-left: 2px solid #808080;"
-                "  border-bottom: 2px solid #FFFFFF;"
-                "  border-right: 2px solid #FFFFFF;"
+                f"  background-color: {_ACCENT};"
+                f"  border-top: 2px solid {_BEVEL_SHADOW};"
+                f"  border-left: 2px solid {_BEVEL_SHADOW};"
+                f"  border-bottom: 2px solid {_BEVEL_LIGHT};"
+                f"  border-right: 2px solid {_BEVEL_LIGHT};"
                 "}"
             )
         else:
             self.setStyleSheet(
                 "FileThumb {"
-                "  background-color: #C0C0C0;"
-                "  border-top: 2px solid #FFFFFF;"
-                "  border-left: 2px solid #FFFFFF;"
-                "  border-bottom: 2px solid #808080;"
-                "  border-right: 2px solid #808080;"
+                f"  background-color: {_CARD};"
+                f"  border-top: 2px solid {_BEVEL_LIGHT};"
+                f"  border-left: 2px solid {_BEVEL_LIGHT};"
+                f"  border-bottom: 2px solid {_BEVEL_SHADOW};"
+                f"  border-right: 2px solid {_BEVEL_SHADOW};"
                 "}"
             )
 
@@ -322,7 +333,7 @@ class _GradientThumb(QWidget):
         w, h = self.width(), self.height()
 
         # Win98 flat silver background for thumb
-        p.fillRect(0, 0, w, h, QColor("#C0C0C0"))
+        p.fillRect(0, 0, w, h, QColor(f"{_CARD}"))
 
         if self._pixmap and not self._pixmap.isNull():
             # ── Vraie miniature ──────────────────────────────────────────────
@@ -336,10 +347,10 @@ class _GradientThumb(QWidget):
             p.drawPixmap(x, y, scaled)
         else:
             # Win98 flat tile: silver + navy type badge
-            p.fillRect(0, 0, w, h, QColor("#C0C0C0"))
-            p.fillRect(0, h - 18, w, 18, QColor("#000080"))
+            p.fillRect(0, 0, w, h, QColor(f"{_CARD}"))
+            p.fillRect(0, h - 18, w, 18, QColor(f"{_ACCENT}"))
             p.setFont(QFont("Work Sans", 8, QFont.Weight.Bold))
-            p.setPen(QColor("#FFFFFF"))
+            p.setPen(QColor(f"{_BEVEL_LIGHT}"))
             p.drawText(QRectF(0, h - 18, w, 18), Qt.AlignmentFlag.AlignCenter, self._ftype)
 
         p.end()
@@ -512,8 +523,8 @@ class _FileDetailPanel(QWidget):
         self.setFixedWidth(self.WIDTH)
         self.setStyleSheet(
             "_FileDetailPanel {"
-            "  background-color: #C0C0C0;"
-            "  border-left: 2px solid #808080;"
+            f"  background-color: {_CARD};"
+            f"  border-left: 2px solid {_BEVEL_SHADOW};"
             "}"
         )
         self._info: dict = {}
@@ -525,12 +536,12 @@ class _FileDetailPanel(QWidget):
         # ── En-tete ───────────────────────────────────────────────────────────
         hdr_bar = QWidget()
         hdr_bar.setFixedHeight(20)
-        hdr_bar.setStyleSheet("background-color: #000080; border: 0px;")
+        hdr_bar.setStyleSheet(f"background-color: {_ACCENT}; border: 0px;")
         hdr = QHBoxLayout(hdr_bar)
         hdr.setContentsMargins(6, 0, 2, 0)
         title = QLabel("Details")
         title.setStyleSheet(
-            "color: #FFFFFF; font-size: 11px; font-weight: 700;"
+            f"color: {_BEVEL_LIGHT}; font-size: 11px; font-weight: 700;"
             "font-family: 'Work Sans', Arial; background: transparent;"
         )
         hdr.addWidget(title, stretch=1)
@@ -539,12 +550,12 @@ class _FileDetailPanel(QWidget):
         close_btn.setCursor(Qt.CursorShape.ArrowCursor)
         close_btn.setStyleSheet(
             "QPushButton {"
-            "  background-color: #C0C0C0; color: #000000;"
+            f"  background-color: {_CARD}; color: {_TEXT};"
             "  font-size: 9px; font-weight: 700;"
-            "  border-top: 2px solid #FFFFFF;"
-            "  border-left: 2px solid #FFFFFF;"
-            "  border-bottom: 2px solid #808080;"
-            "  border-right: 2px solid #808080;"
+            f"  border-top: 2px solid {_BEVEL_LIGHT};"
+            f"  border-left: 2px solid {_BEVEL_LIGHT};"
+            f"  border-bottom: 2px solid {_BEVEL_SHADOW};"
+            f"  border-right: 2px solid {_BEVEL_SHADOW};"
             "}"
         )
         close_btn.clicked.connect(self.closed.emit)
@@ -562,7 +573,7 @@ class _FileDetailPanel(QWidget):
         self._name_lbl = QLabel()
         self._name_lbl.setWordWrap(True)
         self._name_lbl.setStyleSheet(
-            "color: #000000; font-size: 11px; font-weight: 700;"
+            f"color: {_TEXT}; font-size: 11px; font-weight: 700;"
             "font-family: 'Work Sans', Arial; background: transparent;"
         )
         root.addWidget(self._name_lbl)
@@ -571,8 +582,8 @@ class _FileDetailPanel(QWidget):
         # Badge type
         self._type_lbl = QLabel()
         self._type_lbl.setStyleSheet(
-            "color: #FFFFFF; font-size: 9px; font-weight: 700;"
-            "background-color: #000080; padding: 1px 6px; font-family: 'Work Sans', Arial;"
+            f"color: {_BEVEL_LIGHT}; font-size: 9px; font-weight: 700;"
+            f"background-color: {_ACCENT}; padding: 1px 6px; font-family: 'Work Sans', Arial;"
         )
         root.addWidget(self._type_lbl)
         root.addSpacing(8)
@@ -580,7 +591,7 @@ class _FileDetailPanel(QWidget):
         # Separateur
         sep = QFrame()
         sep.setFixedHeight(2)
-        sep.setStyleSheet("background-color: #808080; border: 0px;")
+        sep.setStyleSheet(f"background-color: {_BEVEL_SHADOW}; border: 0px;")
         root.addWidget(sep)
         root.addSpacing(8)
 
@@ -597,11 +608,11 @@ class _FileDetailPanel(QWidget):
         int_row = QHBoxLayout()
         int_lbl = QLabel("Integrite:")
         int_lbl.setStyleSheet(
-            "color: #000000; font-size: 10px; font-family: 'Work Sans', Arial; background: transparent;"
+            f"color: {_TEXT}; font-size: 10px; font-family: 'Work Sans', Arial; background: transparent;"
         )
         self._int_pct_lbl = QLabel("-")
         self._int_pct_lbl.setStyleSheet(
-            "color: #000080; font-size: 10px; font-weight: 700;"
+            f"color: {_ACCENT}; font-size: 10px; font-weight: 700;"
             "font-family: 'Work Sans', Arial; background: transparent;"
         )
         int_row.addWidget(int_lbl, stretch=1)
@@ -638,7 +649,7 @@ class _FileDetailPanel(QWidget):
         # Badge type
         self._type_lbl.setText(ftype)
         self._type_lbl.setStyleSheet(
-            "color: #FFFFFF; background-color: #000080; padding: 1px 6px;"
+            f"color: {_BEVEL_LIGHT}; background-color: {_ACCENT}; padding: 1px 6px;"
             "font-size: 9px; font-weight: 700; font-family: 'Work Sans', Arial;"
         )
 
@@ -685,7 +696,7 @@ class _FileDetailPanel(QWidget):
             val_w = QLabel(val_text)
             val_w.setWordWrap(True)
             val_w.setStyleSheet(
-                "color: #000000; font-size: 10px; font-family: 'Work Sans', Arial; background: transparent;"
+                f"color: {_TEXT}; font-size: 10px; font-family: 'Work Sans', Arial; background: transparent;"
             )
             row_h.addWidget(lbl_w)
             row_h.addWidget(val_w, stretch=1)
@@ -695,7 +706,7 @@ class _FileDetailPanel(QWidget):
         integrity = info.get("integrity", 0)
         int_text  = _integrity_label(integrity)
         self._int_pct_lbl.setText(f"{integrity}%  {int_text}")
-        int_col = "#008000" if integrity >= 90 else ("#000080" if integrity >= 60 else "#808000")
+        int_col = f"{_OK}" if integrity >= 90 else (f"{_ACCENT}" if integrity >= 60 else f"{_WARN}")
         self._int_pct_lbl.setStyleSheet(
             f"color: {int_col}; font-size: 10px; font-weight: 700;"
             "font-family: 'Work Sans', Arial; background: transparent;"
@@ -703,9 +714,9 @@ class _FileDetailPanel(QWidget):
         self._int_bar.setValue(integrity)
         self._int_bar.setStyleSheet(
             "QProgressBar {"
-            "  background-color: #FFFFFF;"
-            "  border-top: 2px solid #808080; border-left: 2px solid #808080;"
-            "  border-bottom: 2px solid #FFFFFF; border-right: 2px solid #FFFFFF;"
+            f"  background-color: {_BEVEL_LIGHT};"
+            f"  border-top: 2px solid {_BEVEL_SHADOW}; border-left: 2px solid {_BEVEL_SHADOW};"
+            f"  border-bottom: 2px solid {_BEVEL_LIGHT}; border-right: 2px solid {_BEVEL_LIGHT};"
             "}"
             f"QProgressBar::chunk {{ background-color: {int_col}; }}"
         )
@@ -723,7 +734,7 @@ class ResultsScreen(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setStyleSheet("background-color: #C0C0C0;")
+        self.setStyleSheet(f"background-color: {_CARD};")
 
         self._all_files: list[dict]      = []
         self._thumbs:    list[FileThumb]  = []
@@ -742,8 +753,8 @@ class ResultsScreen(QWidget):
         topbar = QWidget()
         topbar.setFixedHeight(44)
         topbar.setStyleSheet(
-            "background-color: #C0C0C0;"
-            "border-bottom: 2px solid #808080;"
+            f"background-color: {_CARD};"
+            f"border-bottom: 2px solid {_BEVEL_SHADOW};"
         )
         tb = QHBoxLayout(topbar)
         tb.setContentsMargins(8, 4, 8, 4)
@@ -751,7 +762,7 @@ class ResultsScreen(QWidget):
 
         self._title_lbl = QLabel("Fichiers recuperables")
         self._title_lbl.setStyleSheet(
-            "color: #000000; font-size: 12px; font-weight: 700;"
+            f"color: {_TEXT}; font-size: 12px; font-weight: 700;"
             "font-family: 'Work Sans', Arial; background: transparent;"
         )
         self._count_lbl = QLabel("")
@@ -803,7 +814,7 @@ class ResultsScreen(QWidget):
         filter_bar = QWidget()
         filter_bar.setFixedHeight(34)
         filter_bar.setStyleSheet(
-            "background-color: #C0C0C0; border-bottom: 1px solid #808080;"
+            f"background-color: {_CARD}; border-bottom: 1px solid {_BEVEL_SHADOW};"
         )
         fb = QHBoxLayout(filter_bar)
         fb.setContentsMargins(6, 4, 6, 4)
@@ -832,7 +843,7 @@ class ResultsScreen(QWidget):
         # Tri
         sort_lbl = QLabel("Trier:")
         sort_lbl.setStyleSheet(
-            "color: #000000; font-size: 10px; font-family: 'Work Sans', Arial; background: transparent;"
+            f"color: {_TEXT}; font-size: 10px; font-family: 'Work Sans', Arial; background: transparent;"
         )
         fb.addWidget(sort_lbl)
 
@@ -866,11 +877,11 @@ class ResultsScreen(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setStyleSheet(
-            "QScrollArea { background-color: #FFFFFF; border: none; }"
+            f"QScrollArea { background-color: {_BEVEL_LIGHT}; border: none; }"
         )
 
         self._grid_widget = QWidget()
-        self._grid_widget.setStyleSheet("background-color: #FFFFFF;")
+        self._grid_widget.setStyleSheet(f"background-color: {_BEVEL_LIGHT};")
         self._grid = QGridLayout(self._grid_widget)
         self._grid.setContentsMargins(8, 8, 8, 8)
         self._grid.setSpacing(6)
@@ -885,7 +896,7 @@ class ResultsScreen(QWidget):
         self._detail_panel.recover_requested.connect(self._on_detail_recover)
 
         main_area = QWidget()
-        main_area.setStyleSheet("background-color: #C0C0C0;")
+        main_area.setStyleSheet(f"background-color: {_CARD};")
         main_lay = QHBoxLayout(main_area)
         main_lay.setContentsMargins(0, 0, 0, 0)
         main_lay.setSpacing(0)
@@ -897,7 +908,7 @@ class ResultsScreen(QWidget):
         self._empty_lbl = QLabel("Aucun fichier trouve pour ce filtre.")
         self._empty_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty_lbl.setStyleSheet(
-            "color: #808080; font-size: 12px; background: transparent;"
+            f"color: {_BEVEL_SHADOW}; font-size: 12px; background: transparent;"
         )
         self._empty_lbl.hide()
         root.addWidget(self._empty_lbl)
@@ -910,7 +921,7 @@ class ResultsScreen(QWidget):
         self._load_more_btn.hide()
 
         load_more_wrap = QWidget()
-        load_more_wrap.setStyleSheet("background-color: #C0C0C0;")
+        load_more_wrap.setStyleSheet(f"background-color: {_CARD};")
         load_more_lay = QHBoxLayout(load_more_wrap)
         load_more_lay.setContentsMargins(8, 4, 8, 4)
         load_more_lay.addStretch()
@@ -986,9 +997,9 @@ class ResultsScreen(QWidget):
         if checked:
             self._sys_toggle.setStyleSheet(
                 "QPushButton {"
-                "  background-color: #C0C0C0; color: #800000; font-weight: 700;"
-                "  border-top: 2px solid #808080; border-left: 2px solid #808080;"
-                "  border-bottom: 2px solid #FFFFFF; border-right: 2px solid #FFFFFF;"
+                f"  background-color: {_CARD}; color: #800000; font-weight: 700;"
+                f"  border-top: 2px solid {_BEVEL_SHADOW}; border-left: 2px solid {_BEVEL_SHADOW};"
+                f"  border-bottom: 2px solid {_BEVEL_LIGHT}; border-right: 2px solid {_BEVEL_LIGHT};"
                 "}"
             )
         else:
@@ -1035,22 +1046,22 @@ class ResultsScreen(QWidget):
             if label == self._active_filter:
                 btn.setStyleSheet(
                     "QPushButton {"
-                    "  background-color: #000080; color: #FFFFFF;"
-                    "  border-top: 2px solid #808080;"
-                    "  border-left: 2px solid #808080;"
-                    "  border-bottom: 2px solid #FFFFFF;"
-                    "  border-right: 2px solid #FFFFFF;"
+                    f"  background-color: {_ACCENT}; color: {_BEVEL_LIGHT};"
+                    f"  border-top: 2px solid {_BEVEL_SHADOW};"
+                    f"  border-left: 2px solid {_BEVEL_SHADOW};"
+                    f"  border-bottom: 2px solid {_BEVEL_LIGHT};"
+                    f"  border-right: 2px solid {_BEVEL_LIGHT};"
                     "  font-size: 10px; font-weight: 700;"
                     "}"
                 )
             else:
                 btn.setStyleSheet(
                     "QPushButton {"
-                    "  background-color: #C0C0C0; color: #000000;"
-                    "  border-top: 2px solid #FFFFFF;"
-                    "  border-left: 2px solid #FFFFFF;"
-                    "  border-bottom: 2px solid #808080;"
-                    "  border-right: 2px solid #808080;"
+                    f"  background-color: {_CARD}; color: {_TEXT};"
+                    f"  border-top: 2px solid {_BEVEL_LIGHT};"
+                    f"  border-left: 2px solid {_BEVEL_LIGHT};"
+                    f"  border-bottom: 2px solid {_BEVEL_SHADOW};"
+                    f"  border-right: 2px solid {_BEVEL_SHADOW};"
                     "  font-size: 10px;"
                     "}"
                     "QPushButton:hover { background-color: #D4D0C8; }"
