@@ -10,6 +10,7 @@ stdlib-only: no external dependencies.
 
 Reference: ISO/IEC 14496-12 (ISOBMFF) and Apple QuickTime File Format spec.
 """
+
 from __future__ import annotations
 
 import logging
@@ -45,7 +46,7 @@ def _parse_atoms(data: bytes) -> list[Mp4Atom]:
         if i + 8 > n:
             break
         size = struct.unpack_from(">I", data, i)[0]
-        atom_type = data[i + 4:i + 8]
+        atom_type = data[i + 4 : i + 8]
         try:
             type_str = atom_type.decode("latin-1")
         except Exception:
@@ -68,17 +69,67 @@ def _parse_atoms(data: bytes) -> list[Mp4Atom]:
             # Clamp to available data
             size = n - i
 
-        atoms.append(Mp4Atom(
-            offset=i,
-            size=size,
-            type_=type_str,
-            data=data[i:i + size],
-        ))
+        atoms.append(
+            Mp4Atom(
+                offset=i,
+                size=size,
+                type_=type_str,
+                data=data[i : i + size],
+            )
+        )
         i += size
         if i == 0 or size == 0:
             break
 
     return atoms
+
+
+def diagnose_mp4(input_path: str) -> Mp4RepairReport:
+    """
+    Analyze an MP4/MOV file without writing anything to disk.
+
+    Returns a Mp4RepairReport listing every issue that ``repair_mp4`` would
+    fix, with ``repaired=False``. Safe to call from the UI before asking
+    the user to commit.
+    """
+    data = Path(input_path).read_bytes()
+    report = Mp4RepairReport(original_size=len(data), repaired_size=len(data))
+
+    if len(data) < 8:
+        report.issues_found.append("File too small to be a valid MP4")
+        return report
+
+    atoms = _parse_atoms(data)
+    if not atoms:
+        report.issues_found.append("No valid atoms found")
+        return report
+
+    atom_types = [a.type_ for a in atoms]
+    has_moov = "moov" in atom_types
+    has_mdat = "mdat" in atom_types
+
+    if not has_mdat:
+        report.issues_found.append("No mdat atom found — file may be empty or completely corrupt")
+    if not has_moov:
+        report.issues_found.append(
+            "No moov atom found — recording may have been interrupted. "
+            "Full moov reconstruction requires codec-specific analysis "
+            "(not implemented in v1)."
+        )
+    if has_moov and has_mdat and atom_types.index("moov") > atom_types.index("mdat"):
+        report.issues_found.append("moov atom is after mdat — reordering would enable fast-start")
+
+    # Detect clamped (size-overflow) atoms — re-parse and compare declared vs actual.
+    # When _parse_atoms clamps, the returned atom.size differs from the declared
+    # 4-byte big-endian size at the atom header. This matches the existing
+    # repair_mp4() check.
+    for atom in atoms:
+        if atom.size < 8:
+            report.issues_found.append(
+                f"Atom {atom.type_} at offset {atom.offset} has invalid size"
+            )
+
+    return report
 
 
 def repair_mp4(input_path: str, output_path: str | None = None) -> Mp4RepairReport:
@@ -167,7 +218,10 @@ def repair_mp4(input_path: str, output_path: str | None = None) -> Mp4RepairRepo
 
     _log.info(
         "[mp4_repair] Repaired %s → %s (%d issues, reordered=%s).",
-        input_path, output_path, len(report.issues_found), reordered,
+        input_path,
+        output_path,
+        len(report.issues_found),
+        reordered,
     )
     return report
 

@@ -35,76 +35,106 @@ from app.ui.palette import (
 
 # Outils — (title, desc, badge, available, detail, action_id|None)
 _TOOLS = [
-    ("Analyseur Hexadecimal",
-     "Explorez le contenu brut de votre disque octet par octet.",
-     "Avance", False,
-     "Ouvre une vue hexadecimale du disque selectionne.\n\n"
-     "- Parcourez les secteurs bruts (512 o / 4096 o)\n"
-     "- Recherchez des signatures de fichiers (magic bytes)\n"
-     "- Identifiez les tables de partition MBR/GPT\n"
-     "- Exportez des plages de secteurs en fichier binaire",
-     None),
-
-    ("Rapport S.M.A.R.T.",
-     "Consultez les indicateurs de sante de votre disque dur.",
-     "Diagnostic", True,
-     "Lit les attributs S.M.A.R.T. directement depuis le firmware du disque.\n\n"
-     "- Etat general (OK / Degrade / Critique)\n"
-     "- Modele, numero de serie, revision firmware\n"
-     "- Interface (SATA, NVMe, USB...) et capacite\n"
-     "- Nombre de partitions et type de media\n"
-     "- Alerte predictive de panne imminente",
-     "launch_smart"),
-
-    ("Effacer les logs",
-     "Supprimez lumina.log, l'historique et les rapports de scan.",
-     "Maintenance", True,
-     "Purge complete des fichiers de log Lumina.\n\n"
-     "- Vide logs/lumina.log\n"
-     "- Reinitialise logs/history.json a []\n"
-     "- Supprime tous les logs/scan_*.json orphelins\n"
-     "- Demande confirmation avant toute action",
-     "purge_logs"),
-
-    ("Recuperation NAS",
-     "Recuperez des donnees depuis un NAS (RAID 0, 1, 5, 6).",
-     "Reseau", False,
-     "Reconstruit les volumes RAID logiciels pour acceder aux donnees.\n\n"
-     "- Supporte RAID 0, 1, 5, 6 et JBOD\n"
-     "- Compatible Synology, QNAP, Netgear\n"
-     "- Recalcule la parite pour les matrices degradees\n"
-     "- Monte le volume virtuel pour une recuperation normale",
-     None),
-
-    ("Recuperation Linux/macOS",
-     "Lisez les partitions ext4, Btrfs, APFS et HFS+.",
-     "Cross-OS", False,
-     "Accede aux systemes de fichiers non-Windows depuis Lumina.\n\n"
-     "- Lecture ext2 / ext3 / ext4 (Linux)\n"
-     "- Lecture Btrfs avec support des instantanes\n"
-     "- Lecture APFS et HFS+ (macOS)\n"
-     "- Recuperation sur Time Machine et partitions Boot Camp",
-     None),
-
-    ("Recuperation chiffree",
-     "Recuperez des donnees sur des volumes BitLocker ou VeraCrypt.",
-     "Securite", False,
-     "Dechiffre a la volee pour permettre la recuperation de fichiers.\n\n"
-     "- BitLocker (mot de passe ou cle de recuperation 48 chiffres)\n"
-     "- VeraCrypt (volume standard et volume cache)\n"
-     "- La cle n'est jamais stockee sur disque\n"
-     "- Compatible avec les disques partiellement corrompus",
-     None),
-
-    ("Recuperation Cloud",
-     "Synchronisez et recuperez depuis OneDrive, Google Drive, etc.",
-     "Cloud", False,
-     "Restaure des fichiers supprimes ou ecrases depuis les services cloud.\n\n"
-     "- OneDrive, Google Drive, Dropbox, iCloud\n"
-     "- Accede a la corbeille et a l'historique de versions\n"
-     "- Telecharge directement vers un dossier local\n"
-     "- Fonctionne meme si le client de synchronisation est desinstalle",
-     None),
+    (
+        "Analyseur Hexadecimal",
+        "Explorez le contenu brut de votre disque octet par octet.",
+        "Avance",
+        False,
+        "Ouvre une vue hexadecimale du disque selectionne.\n\n"
+        "- Parcourez les secteurs bruts (512 o / 4096 o)\n"
+        "- Recherchez des signatures de fichiers (magic bytes)\n"
+        "- Identifiez les tables de partition MBR/GPT\n"
+        "- Exportez des plages de secteurs en fichier binaire",
+        None,
+    ),
+    (
+        "Rapport S.M.A.R.T.",
+        "Consultez les indicateurs de sante de votre disque dur.",
+        "Diagnostic",
+        True,
+        "Lit les attributs S.M.A.R.T. directement depuis le firmware du disque.\n\n"
+        "- Etat general (OK / Degrade / Critique)\n"
+        "- Modele, numero de serie, revision firmware\n"
+        "- Interface (SATA, NVMe, USB...) et capacite\n"
+        "- Nombre de partitions et type de media\n"
+        "- Alerte predictive de panne imminente",
+        "launch_smart",
+    ),
+    (
+        "Effacer les logs",
+        "Supprimez lumina.log, l'historique et les rapports de scan.",
+        "Maintenance",
+        True,
+        "Purge complete des fichiers de log Lumina.\n\n"
+        "- Vide logs/lumina.log\n"
+        "- Reinitialise logs/history.json a []\n"
+        "- Supprime tous les logs/scan_*.json orphelins\n"
+        "- Demande confirmation avant toute action",
+        "purge_logs",
+    ),
+    (
+        "Reparation de fichiers",
+        "Reconstruisez des JPEG ou MP4 corrompus.",
+        "Reparation",
+        True,
+        "Repare les fichiers media endommages dont les marqueurs sont absents "
+        "ou mal places.\n\n"
+        "- JPEG : restauration des marqueurs SOI/EOI manquants\n"
+        "- JPEG : nettoyage des octets parasites avant le marqueur de debut\n"
+        "- JPEG : verification des longueurs de segment\n"
+        "- MP4/MOV : reordonnancement moov/mdat (fast-start)\n"
+        "- MP4/MOV : detection des atomes invalides ou tronques\n"
+        "- Diagnostic en lecture seule avant ecriture",
+        "launch_repair",
+    ),
+    (
+        "Recuperation NAS",
+        "Recuperez des donnees depuis un NAS (RAID 0, 1, 5, 6).",
+        "Reseau",
+        False,
+        "Reconstruit les volumes RAID logiciels pour acceder aux donnees.\n\n"
+        "- Supporte RAID 0, 1, 5, 6 et JBOD\n"
+        "- Compatible Synology, QNAP, Netgear\n"
+        "- Recalcule la parite pour les matrices degradees\n"
+        "- Monte le volume virtuel pour une recuperation normale",
+        None,
+    ),
+    (
+        "Recuperation Linux/macOS",
+        "Lisez les partitions ext4, Btrfs, APFS et HFS+.",
+        "Cross-OS",
+        False,
+        "Accede aux systemes de fichiers non-Windows depuis Lumina.\n\n"
+        "- Lecture ext2 / ext3 / ext4 (Linux)\n"
+        "- Lecture Btrfs avec support des instantanes\n"
+        "- Lecture APFS et HFS+ (macOS)\n"
+        "- Recuperation sur Time Machine et partitions Boot Camp",
+        None,
+    ),
+    (
+        "Recuperation chiffree",
+        "Recuperez des donnees sur des volumes BitLocker ou VeraCrypt.",
+        "Securite",
+        False,
+        "Dechiffre a la volee pour permettre la recuperation de fichiers.\n\n"
+        "- BitLocker (mot de passe ou cle de recuperation 48 chiffres)\n"
+        "- VeraCrypt (volume standard et volume cache)\n"
+        "- La cle n'est jamais stockee sur disque\n"
+        "- Compatible avec les disques partiellement corrompus",
+        None,
+    ),
+    (
+        "Recuperation Cloud",
+        "Synchronisez et recuperez depuis OneDrive, Google Drive, etc.",
+        "Cloud",
+        False,
+        "Restaure des fichiers supprimes ou ecrases depuis les services cloud.\n\n"
+        "- OneDrive, Google Drive, Dropbox, iCloud\n"
+        "- Accede a la corbeille et a l'historique de versions\n"
+        "- Telecharge directement vers un dossier local\n"
+        "- Fonctionne meme si le client de synchronisation est desinstalle",
+        None,
+    ),
 ]
 
 
@@ -112,14 +142,14 @@ _TOOLS = [
 #  Popup d'information
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class _InfoDialog(QDialog):
     def __init__(self, title: str, detail: str, parent=None):
         super().__init__(parent)
         self.setWindowTitle(f"A propos — {title}")
         self.setFixedWidth(420)
         self.setStyleSheet(
-            "QDialog { background-color: #C0C0C0; }"
-            "QLabel  { font-family: 'Work Sans', Arial; }"
+            "QDialog { background-color: #C0C0C0; }QLabel  { font-family: 'Work Sans', Arial; }"
         )
 
         root = QVBoxLayout(self)
@@ -128,8 +158,7 @@ class _InfoDialog(QDialog):
 
         title_lbl = QLabel(title)
         title_lbl.setStyleSheet(
-            "color: #000000; font-size: 13px; font-weight: 700;"
-            "background: transparent;"
+            "color: #000000; font-size: 13px; font-weight: 700;background: transparent;"
         )
         root.addWidget(title_lbl)
 
@@ -143,9 +172,7 @@ class _InfoDialog(QDialog):
 
         detail_lbl = QLabel(detail)
         detail_lbl.setWordWrap(True)
-        detail_lbl.setStyleSheet(
-            "color: #000000; font-size: 11px; background: transparent;"
-        )
+        detail_lbl.setStyleSheet("color: #000000; font-size: 11px; background: transparent;")
         root.addWidget(detail_lbl)
 
         close_btn = QPushButton("Fermer")
@@ -159,13 +186,15 @@ class _InfoDialog(QDialog):
 #  Worker wmic (QThread)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class _SmartWorker(QThread):
     result = pyqtSignal(list)
-    error  = pyqtSignal(str)
+    error = pyqtSignal(str)
 
     def run(self):
         try:
             import json as _json
+
             ps_cmd = (
                 "Get-CimInstance Win32_DiskDrive | "
                 "Select-Object Caption,SerialNumber,Status,Size,"
@@ -173,8 +202,7 @@ class _SmartWorker(QThread):
                 "ConvertTo-Json -Depth 2"
             )
             raw = subprocess.check_output(
-                ["powershell", "-NoProfile", "-NonInteractive",
-                 "-Command", ps_cmd],
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
                 text=True,
                 encoding="utf-8",
                 errors="replace",
@@ -186,16 +214,18 @@ class _SmartWorker(QThread):
                 data = [data]
             disks = []
             for d in data:
-                disks.append({
-                    "Caption":          str(d.get("Caption")          or "—"),
-                    "SerialNumber":     str(d.get("SerialNumber")     or "—").strip(),
-                    "Status":           str(d.get("Status")           or "Unknown"),
-                    "Size":             str(d.get("Size")             or 0),
-                    "InterfaceType":    str(d.get("InterfaceType")    or "—"),
-                    "MediaType":        str(d.get("MediaType")        or "—"),
-                    "FirmwareRevision": str(d.get("FirmwareRevision") or "—").strip(),
-                    "Partitions":       str(d.get("Partitions")       or "—"),
-                })
+                disks.append(
+                    {
+                        "Caption": str(d.get("Caption") or "—"),
+                        "SerialNumber": str(d.get("SerialNumber") or "—").strip(),
+                        "Status": str(d.get("Status") or "Unknown"),
+                        "Size": str(d.get("Size") or 0),
+                        "InterfaceType": str(d.get("InterfaceType") or "—"),
+                        "MediaType": str(d.get("MediaType") or "—"),
+                        "FirmwareRevision": str(d.get("FirmwareRevision") or "—").strip(),
+                        "Partitions": str(d.get("Partitions") or "—"),
+                    }
+                )
             self.result.emit([d for d in disks if d.get("Caption") != "—"])
         except Exception as exc:
             self.error.emit(str(exc))
@@ -205,14 +235,14 @@ class _SmartWorker(QThread):
 #  Dialogue S.M.A.R.T.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class _SmartDialog(QDialog):
     def __init__(self, disks: list[dict], parent=None):
         super().__init__(parent)
         self.setWindowTitle("Lumina — Rapport S.M.A.R.T.")
         self.setFixedSize(600, 500)
         self.setStyleSheet(
-            "QDialog { background-color: #C0C0C0; }"
-            "QLabel  { font-family: 'Work Sans', Arial; }"
+            "QDialog { background-color: #C0C0C0; }QLabel  { font-family: 'Work Sans', Arial; }"
         )
         self._disks = disks
 
@@ -252,9 +282,7 @@ class _SmartDialog(QDialog):
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self._scroll.setStyleSheet(
-            "QScrollArea { background-color: #C0C0C0; border: none; }"
-        )
+        self._scroll.setStyleSheet("QScrollArea { background-color: #C0C0C0; border: none; }")
         self._content_widget = QWidget()
         self._content_widget.setStyleSheet("background-color: #C0C0C0;")
         self._content_lay = QVBoxLayout(self._content_widget)
@@ -284,8 +312,8 @@ class _SmartDialog(QDialog):
         disk = self._disks[idx]
 
         status = disk.get("Status", "Unknown") or "Unknown"
-        ok     = (status.upper() == "OK")
-        s_col  = _OK if ok else (_ERR if "FAIL" in status.upper() else _WARN)
+        ok = status.upper() == "OK"
+        s_col = _OK if ok else (_ERR if "FAIL" in status.upper() else _WARN)
 
         banner = QFrame()
         banner.setFixedHeight(50)
@@ -323,16 +351,16 @@ class _SmartDialog(QDialog):
         self._content_lay.addWidget(banner)
 
         size_bytes = int(disk.get("Size", 0) or 0)
-        size_str   = f"{size_bytes / (1024 ** 3):.1f} Go" if size_bytes else "—"
+        size_str = f"{size_bytes / (1024**3):.1f} Go" if size_bytes else "—"
 
         props = [
-            ("Modele",           disk.get("Caption",          "—") or "—"),
-            ("Numero de serie",  disk.get("SerialNumber",     "—") or "—"),
-            ("Interface",        disk.get("InterfaceType",    "—") or "—"),
-            ("Capacite",         size_str),
-            ("Type de media",    disk.get("MediaType",        "—") or "—"),
-            ("Revision firmware",disk.get("FirmwareRevision", "—") or "—"),
-            ("Partitions",       disk.get("Partitions",       "—") or "—"),
+            ("Modele", disk.get("Caption", "—") or "—"),
+            ("Numero de serie", disk.get("SerialNumber", "—") or "—"),
+            ("Interface", disk.get("InterfaceType", "—") or "—"),
+            ("Capacite", size_str),
+            ("Type de media", disk.get("MediaType", "—") or "—"),
+            ("Revision firmware", disk.get("FirmwareRevision", "—") or "—"),
+            ("Partitions", disk.get("Partitions", "—") or "—"),
         ]
 
         grid = QGridLayout()
@@ -381,6 +409,7 @@ class _SmartDialog(QDialog):
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Carte d'outil
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class _ToolCard(QFrame):
     def __init__(
@@ -437,8 +466,7 @@ class _ToolCard(QFrame):
         info_btn.setCursor(Qt.CursorShape.ArrowCursor)
         info_btn.setToolTip("En savoir plus")
         info_btn.clicked.connect(
-            lambda checked, ti=title, de=detail:
-                _InfoDialog(ti, de, self).exec()
+            lambda checked, ti=title, de=detail: _InfoDialog(ti, de, self).exec()
         )
         lay.addWidget(info_btn)
 
@@ -481,9 +509,7 @@ class ToolsScreen(QWidget):
         # En-tete
         hdr = QWidget()
         hdr.setFixedHeight(40)
-        hdr.setStyleSheet(
-            "background-color: #C0C0C0; border-bottom: 2px solid #808080;"
-        )
+        hdr.setStyleSheet("background-color: #C0C0C0; border-bottom: 2px solid #808080;")
         hr = QHBoxLayout(hdr)
         hr.setContentsMargins(8, 4, 8, 4)
         title = QLabel("Outils avances")
@@ -545,7 +571,8 @@ class ToolsScreen(QWidget):
     def _on_smart_result(self, disks: list[dict]):
         if not disks:
             QMessageBox.warning(
-                self, "S.M.A.R.T.",
+                self,
+                "S.M.A.R.T.",
                 "Aucun disque detecte via wmic.\n"
                 "Assurez-vous de lancer Lumina en tant qu'administrateur.",
             )
@@ -555,16 +582,25 @@ class ToolsScreen(QWidget):
 
     def _on_smart_error(self, msg: str):
         QMessageBox.critical(
-            self, "Erreur S.M.A.R.T.",
+            self,
+            "Erreur S.M.A.R.T.",
             f"Impossible de lire les donnees disque :\n{msg}",
         )
+
+    # ── Reparation de fichiers ─────────────────────────────────────────────
+
+    def _launch_repair(self):
+        from app.ui.repair_dialog import RepairDialog
+
+        dlg = RepairDialog(self)
+        dlg.exec()
 
     # ── Purge des logs ────────────────────────────────────────────────────────
 
     def _purge_logs(self):
         history_path = _LOGS_DIR / "history.json"
-        log_path     = _LOGS_DIR / "lumina.log"
-        scan_files   = list(_LOGS_DIR.glob("scan_*.json"))
+        log_path = _LOGS_DIR / "lumina.log"
+        scan_files = list(_LOGS_DIR.glob("scan_*.json"))
 
         reply = QMessageBox.question(
             self,
@@ -605,13 +641,14 @@ class ToolsScreen(QWidget):
 
         if errors:
             QMessageBox.warning(
-                self, "Purge partielle",
-                "Certains fichiers n'ont pas pu etre supprimes :\n\n"
-                + "\n".join(errors),
+                self,
+                "Purge partielle",
+                "Certains fichiers n'ont pas pu etre supprimes :\n\n" + "\n".join(errors),
             )
         else:
             QMessageBox.information(
-                self, "Logs effaces",
+                self,
+                "Logs effaces",
                 f"Logs purges avec succes.\n"
                 f"  - lumina.log vide\n"
                 f"  - history.json reinitialise\n"

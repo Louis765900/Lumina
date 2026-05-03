@@ -9,10 +9,10 @@ Repairs common JPEG corruption patterns:
 
 stdlib-only: no Pillow dependency.
 """
+
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -22,7 +22,14 @@ _log = logging.getLogger("lumina.recovery")
 _SOI = b"\xff\xd8"
 _EOI = b"\xff\xd9"
 _MARKERS_NO_LENGTH = {
-    0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7,  # RST0-RST7
+    0xD0,
+    0xD1,
+    0xD2,
+    0xD3,
+    0xD4,
+    0xD5,
+    0xD6,
+    0xD7,  # RST0-RST7
     0xD8,  # SOI
     0xD9,  # EOI
     0x01,  # TEM
@@ -36,6 +43,39 @@ class RepairReport:
     repaired_size: int
     issues_found: list[str] = field(default_factory=list)
     repaired: bool = False
+
+
+def diagnose_jpeg(input_path: str) -> RepairReport:
+    """
+    Analyze a JPEG file without writing anything to disk.
+
+    Returns a RepairReport listing every issue that ``repair_jpeg`` would fix,
+    with ``repaired=False``. Safe to call from a UI thread before asking the
+    user whether to commit a repair.
+    """
+    data = Path(input_path).read_bytes()
+    report = RepairReport(original_size=len(data), repaired_size=len(data))
+
+    if not data:
+        report.issues_found.append("Empty file — cannot repair")
+        return report
+
+    if not data.startswith(_SOI):
+        idx = data.find(_SOI, 0, 512)
+        if idx > 0:
+            report.issues_found.append(f"{idx} garbage bytes before SOI")
+        else:
+            report.issues_found.append("Missing SOI marker")
+
+    # Walk markers in a probing pass to detect length-overflow segments,
+    # without mutating the bytes. Re-uses the same scan logic as the real
+    # repair, but discards the rebuilt buffer.
+    _fix_marker_structure(data, report)
+
+    if not data.endswith(_EOI):
+        report.issues_found.append("Missing EOI marker")
+
+    return report
 
 
 def repair_jpeg(input_path: str, output_path: str | None = None) -> RepairReport:
@@ -86,7 +126,9 @@ def repair_jpeg(input_path: str, output_path: str | None = None) -> RepairReport
     report.repaired = True
     _log.info(
         "[jpeg_repair] Repaired %s → %s (%d issues).",
-        input_path, output_path, len(report.issues_found),
+        input_path,
+        output_path,
+        len(report.issues_found),
     )
     return report
 
@@ -129,7 +171,7 @@ def _fix_marker_structure(data: bytes, report: RepairReport) -> bytes:
 
         if marker_byte in _MARKERS_NO_LENGTH:
             # Single marker, no length field
-            output.extend(data[i:i + 2])
+            output.extend(data[i : i + 2])
             i += 2
             if marker_byte == 0xD9:  # EOI
                 break
@@ -153,12 +195,12 @@ def _fix_marker_structure(data: bytes, report: RepairReport) -> bytes:
                     next_b = data[j + 1]
                     if next_b == 0x00 or next_b == 0xFF:
                         # Stuffed byte or fill byte — part of entropy data
-                        output.extend(data[j:j + 2])
+                        output.extend(data[j : j + 2])
                         j += 2
                         continue
                     if 0xD0 <= next_b <= 0xD7:
                         # RST marker — part of entropy data
-                        output.extend(data[j:j + 2])
+                        output.extend(data[j : j + 2])
                         j += 2
                         continue
                     # Real marker — end of entropy data
