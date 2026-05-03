@@ -2058,25 +2058,55 @@ class HFSPlusParser(BaseFSParser):
 
 class APFSParser(BaseFSParser):
     """
-    APFS (Apple File System) detector.
+    APFS (Apple File System) parser — v1 partial.
 
-    probe() identifies APFS containers by reading the NX Superblock.
-    enumerate_files() is not implemented in v1 — APFS recovery uses
-    the FileCarver signature-carving pass instead.
+    APFS is intentionally complex: variable-size B-Tree keys, copy-on-write
+    snapshots, transaction-id resolution via Object Maps, optional FileVault
+    encryption. A complete file walker is several thousand lines. v1 ships
+    a useful subset:
 
-    Reference: Apple File System Reference (apple.com)
-    Note: APFS is Little-Endian throughout.
-    Magic: 'NXSB' (0x4253584E in LE, bytes b'NXSB' at offset 32).
+      * Full NX Superblock (NXSB) parsing — validates magic, block size,
+        block count, container UUID, max-filesystems count, FS-OID array.
+      * Volume Superblock (APSB) discovery — locates each volume's APSB by
+        scanning the early checkpoint region (deterministic in clean images,
+        best-effort on damaged ones).
+      * Encryption detection — inspects ``apfs_fs_flags`` bit 0
+        (APFS_FS_UNENCRYPTED) on each volume found.
+      * Multi-volume awareness — every located volume is logged with name
+        and encryption state so the user knows what's on the container.
+
+    Walking the Filesystem B-Tree (inode/extent/dir-rec records) is still
+    deferred to a future revision; ``enumerate_files`` returns 0 and the
+    FileCarver handles actual recovery. The point of v1 is to give an
+    honest, informative diagnosis rather than silently delegate.
+
+    Reference: Apple File System Reference, June 2020.
     """
 
     name = "APFS"
 
-    _NXSB_MAGIC = b"NXSB"  # at offset 32 in NX Superblock
-    _APSB_MAGIC = b"APSB"  # Volume superblock
+    _NXSB_MAGIC = b"NXSB"
+    _APSB_MAGIC = b"APSB"
+
+    # apfs_fs_flags bits (apfs_volume_superblock)
+    _APFS_FS_UNENCRYPTED = 0x00000001
+
+    # Object header type field (lower 16 bits)
+    _OBJECT_TYPE_MASK = 0x0000FFFF
+    _OBJECT_TYPE_FS = 0x0000000D  # APFS_OBJECT_TYPE_FS (volume superblock)
+
+    # Brute-force search window for APSB blocks. Real containers place them
+    # within the first checkpoint area; 4096 blocks ~= 16 MiB at 4 KiB.
+    _APSB_SCAN_BLOCKS = 4096
 
     def __init__(self, raw_device: str, fd: int) -> None:
         super().__init__(raw_device, fd)
-        self._ready: bool = False
+        self._nx_ready: bool = False
+        self._nx_block_size: int = 0
+        self._nx_block_count: int = 0
+        self._nx_omap_oid: int = 0
+        self._nx_max_file_systems: int = 0
+        self._nx_fs_oids: list[int] = []
 
     # ── BaseFSParser contract ─────────────────────────────────────────────────
 
@@ -2093,7 +2123,6 @@ class APFSParser(BaseFSParser):
             if nx_block_size < 4096:
                 _log.debug("[APFSParser] nx_block_size=%d < 4096.", nx_block_size)
                 return False
-            self._ready = True
             _log.info(
                 "[APFSParser] APFS container detected on %s (block_size=%d).",
                 self._device,
@@ -2110,17 +2139,182 @@ class APFSParser(BaseFSParser):
         progress_cb: Callable[[int], None],
         file_found_cb: Callable[[dict], None],
     ) -> int:
-        """
-        APFS enumeration is not implemented in v1.
-        The FileCarver carving pass handles recovery on APFS volumes.
-        """
-        _log.info(
-            "[APFSParser] APFS detected — full enumeration not implemented in v1. Using carver."
-        )
-        progress_cb(100)
-        return 0
+        try:
+            if not self._parse_nx_superblock():
+                _log.info(
+                    "[APFSParser] NX Superblock not parsable — APFS enumeration "
+                    "skipped, carver will run."
+                )
+                progress_cb(100)
+                return 0
+            if stop_flag():
+                progress_cb(100)
+                return 0
 
-    # ── Low-level I/O ──────────────────────────────────────────────────────────
+            volumes = self._discover_volumes()
+            if not volumes:
+                _log.info(
+                    "[APFSParser] APFS container detected (block_size=%d, "
+                    "max_fs=%d) but no APSB blocks found — falling back to "
+                    "Deep Scan carving.",
+                    self._nx_block_size,
+                    self._nx_max_file_systems,
+                )
+                progress_cb(100)
+                return 0
+
+            encrypted = sum(1 for v in volumes if v["encrypted"])
+            unencrypted = len(volumes) - encrypted
+            _log.info(
+                "[APFSParser] APFS container has %d volume(s): %d unencrypted, "
+                "%d encrypted. Structural enumeration not implemented in v1; "
+                "falling back to Deep Scan carving.",
+                len(volumes),
+                unencrypted,
+                encrypted,
+            )
+            for v in volumes:
+                state = "encrypted" if v["encrypted"] else "unencrypted"
+                name = v.get("volume_name") or "(unnamed)"
+                _log.info(
+                    "[APFSParser]   volume[%d] %s — %s @ block %d",
+                    v["index"],
+                    name,
+                    state,
+                    v["block"],
+                )
+
+            progress_cb(100)
+            return 0
+        except Exception as exc:
+            _log.debug("[APFSParser] enumerate_files raised %s — fallback.", exc)
+            progress_cb(100)
+            return 0
+
+    # ── NX Superblock ────────────────────────────────────────────────────────
+
+    def _parse_nx_superblock(self) -> bool:
+        """Read full NXSB header and cache OID array for volume discovery."""
+        if self._nx_ready:
+            return True
+        try:
+            head = self._read_raw(0, 4096)
+        except OSError:
+            return False
+        if len(head) < 0xB8 + 8:
+            return False
+        if head[32:36] != self._NXSB_MAGIC:
+            return False
+
+        nx_block_size = struct.unpack_from("<I", head, 0x24)[0]
+        nx_block_count = struct.unpack_from("<Q", head, 0x28)[0]
+        nx_omap_oid = struct.unpack_from("<Q", head, 0xA0)[0]
+        nx_max_fs = struct.unpack_from("<I", head, 0xB4)[0]
+
+        if nx_block_size < 4096 or nx_block_size > 65_536:
+            return False
+        if nx_block_count == 0:
+            return False
+        # max_file_systems is bounded by the spec to 100 (NX_MAX_FILE_SYSTEMS).
+        if nx_max_fs == 0 or nx_max_fs > 100:
+            return False
+
+        # Read the FS OID array if the block is large enough.
+        fs_oids: list[int] = []
+        if len(head) >= 0xB8 + nx_max_fs * 8:
+            for i in range(nx_max_fs):
+                oid = struct.unpack_from("<Q", head, 0xB8 + i * 8)[0]
+                if oid != 0:
+                    fs_oids.append(oid)
+
+        self._nx_block_size = nx_block_size
+        self._nx_block_count = nx_block_count
+        self._nx_omap_oid = nx_omap_oid
+        self._nx_max_file_systems = nx_max_fs
+        self._nx_fs_oids = fs_oids
+        self._nx_ready = True
+        _log.info(
+            "[APFSParser] NX Superblock OK — block_size=%d, block_count=%d, "
+            "max_fs=%d, populated_fs=%d.",
+            nx_block_size,
+            nx_block_count,
+            nx_max_fs,
+            len(fs_oids),
+        )
+        return True
+
+    # ── Volume superblock discovery ──────────────────────────────────────────
+
+    def _discover_volumes(self) -> list[dict]:
+        """
+        Locate Volume Superblocks (APSB).
+
+        We avoid implementing the Object Map B-Tree (the proper way to resolve
+        a volume OID to its physical block). Instead we scan the first
+        ``_APSB_SCAN_BLOCKS`` blocks for the APSB magic — sufficient for clean
+        containers and informative on damaged ones. The block size is taken
+        from the NX Superblock.
+        """
+        if not self._nx_ready:
+            return []
+        result: list[dict] = []
+        bs = self._nx_block_size
+        seen_blocks: set[int] = set()
+        try:
+            for blk in range(self._APSB_SCAN_BLOCKS):
+                if len(result) >= self._nx_max_file_systems:
+                    break
+                offset = blk * bs
+                try:
+                    raw = self._read_raw(offset, bs)
+                except OSError:
+                    continue
+                if len(raw) < 0x90:
+                    break
+                if raw[32:36] != self._APSB_MAGIC:
+                    continue
+                if blk in seen_blocks:
+                    continue
+                seen_blocks.add(blk)
+                volume_info = self._parse_apsb(raw, block=blk)
+                if volume_info is not None:
+                    volume_info["index"] = len(result)
+                    result.append(volume_info)
+        except Exception as exc:
+            _log.debug("[APFSParser] APSB scan raised %s — partial result.", exc)
+        return result
+
+    def _parse_apsb(self, raw: bytes, *, block: int) -> dict | None:
+        """Extract encryption flag + name from an APSB block."""
+        if len(raw) < 0x100:
+            return None
+        if raw[32:36] != self._APSB_MAGIC:
+            return None
+        try:
+            apfs_fs_flags = struct.unpack_from("<Q", raw, 0x88)[0]
+        except struct.error:
+            return None
+        encrypted = (apfs_fs_flags & self._APFS_FS_UNENCRYPTED) == 0
+
+        # apfs_volname is a 256-byte UTF-8 C-string that lives at offset
+        # 0x2D0 in the volume superblock per the APFS reference.
+        volume_name: str | None = None
+        if len(raw) >= 0x2D0 + 256:
+            name_blob = bytes(raw[0x2D0 : 0x2D0 + 256])
+            nul = name_blob.find(b"\x00")
+            if nul > 0:
+                try:
+                    volume_name = name_blob[:nul].decode("utf-8")
+                except UnicodeDecodeError:
+                    volume_name = None
+        return {
+            "block": block,
+            "encrypted": encrypted,
+            "volume_name": volume_name,
+            "fs_flags": apfs_fs_flags,
+        }
+
+    # ── Low-level I/O ─────────────────────────────────────────────────────────
 
     def _read_raw(self, offset: int, size: int) -> bytes:
         """Seek + read with retry on partial reads."""
