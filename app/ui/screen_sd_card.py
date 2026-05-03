@@ -15,6 +15,15 @@ from PyQt6.QtWidgets import (
 )
 
 from app.core.disk_detector import DiskDetector
+from app.ui.palette import (
+    ACCENT as _ACCENT,
+    BEVEL_LIGHT as _BEVEL_LIGHT,
+    BEVEL_SHADOW as _BEVEL_SHADOW,
+    BORDER as _BORDER,
+    CARD as _CARD,
+    SUB as _SUB,
+    TEXT as _TEXT,
+)
 
 
 def _is_external(disk: dict) -> bool:
@@ -37,13 +46,13 @@ class _DeviceCard(QFrame):
         self._disk = disk
         self.setFixedHeight(60)
         self.setStyleSheet(
-            "_DeviceCard {"
-            "  background-color: #C0C0C0;"
-            "  border-top: 2px solid #FFFFFF;"
-            "  border-left: 2px solid #FFFFFF;"
-            "  border-bottom: 2px solid #808080;"
-            "  border-right: 2px solid #808080;"
-            "}"
+            f"_DeviceCard {{"
+            f"  background-color: {_CARD};"
+            f"  border-top: 2px solid {_BEVEL_LIGHT};"
+            f"  border-left: 2px solid {_BEVEL_LIGHT};"
+            f"  border-bottom: 2px solid {_BEVEL_SHADOW};"
+            f"  border-right: 2px solid {_BEVEL_SHADOW};"
+            f"}}"
         )
 
         lay = QHBoxLayout(self)
@@ -55,7 +64,7 @@ class _DeviceCard(QFrame):
         badge.setFixedSize(28, 16)
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         badge.setStyleSheet(
-            "background-color: #000080; color: #FFFFFF;"
+            f"background-color: {_ACCENT}; color: {_BEVEL_LIGHT};"
             "font-size: 9px; font-weight: 700; font-family: 'Work Sans', Arial;"
         )
         lay.addWidget(badge)
@@ -66,7 +75,7 @@ class _DeviceCard(QFrame):
         name = disk.get("name", "Peripherique")
         n_lbl = QLabel(name)
         n_lbl.setStyleSheet(
-            "color: #000000; font-size: 11px; font-weight: 700;"
+            f"color: {_TEXT}; font-size: 11px; font-weight: 700;"
             "font-family: 'Work Sans', Arial; background: transparent;"
         )
 
@@ -76,7 +85,7 @@ class _DeviceCard(QFrame):
         size_txt = f"{used:.1f} / {total:.1f} Go" if used > 0 else f"{total:.1f} Go"
         d_lbl = QLabel(f"{device}  |  {size_txt}")
         d_lbl.setStyleSheet(
-            "color: #404040; font-size: 10px;"
+            f"color: {_SUB}; font-size: 10px;"
             "font-family: 'Work Sans', Arial; background: transparent;"
         )
         info.addWidget(n_lbl)
@@ -107,7 +116,7 @@ class _EmptyState(QWidget):
         title = QLabel("Aucun peripherique externe detecte")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet(
-            "color: #000000; font-size: 12px; font-weight: 700;"
+            f"color: {_TEXT}; font-size: 12px; font-weight: 700;"
             "font-family: 'Work Sans', Arial; background: transparent;"
         )
         lay.addWidget(title)
@@ -118,7 +127,7 @@ class _EmptyState(QWidget):
         )
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub.setStyleSheet(
-            "color: #404040; font-size: 11px;"
+            f"color: {_SUB}; font-size: 11px;"
             "font-family: 'Work Sans', Arial; background: transparent;"
         )
         lay.addWidget(sub)
@@ -139,7 +148,7 @@ class SdCardScreen(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setStyleSheet("background-color: #C0C0C0;")
+        self.setStyleSheet(f"background-color: {_CARD};")
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -149,14 +158,14 @@ class SdCardScreen(QWidget):
         hdr = QWidget()
         hdr.setFixedHeight(40)
         hdr.setStyleSheet(
-            "background-color: #C0C0C0; border-bottom: 2px solid #808080;"
+            f"background-color: {_CARD}; border-bottom: 2px solid {_BORDER};"
         )
         hr = QHBoxLayout(hdr)
         hr.setContentsMargins(8, 4, 8, 4)
 
         title = QLabel("Cartes SD & Peripheriques externes")
         title.setStyleSheet(
-            "color: #000000; font-size: 12px; font-weight: 700;"
+            f"color: {_TEXT}; font-size: 12px; font-weight: 700;"
             "font-family: 'Work Sans', Arial; background: transparent;"
         )
         hr.addWidget(title)
@@ -173,10 +182,10 @@ class SdCardScreen(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setStyleSheet("QScrollArea { background-color: #C0C0C0; border: none; }")
+        scroll.setStyleSheet(f"QScrollArea {{ background-color: {_CARD}; border: none; }}")
 
         self._content = QWidget()
-        self._content.setStyleSheet("background-color: #C0C0C0;")
+        self._content.setStyleSheet(f"background-color: {_CARD};")
         self._layout = QVBoxLayout(self._content)
         self._layout.setContentsMargins(8, 8, 8, 8)
         self._layout.setSpacing(6)

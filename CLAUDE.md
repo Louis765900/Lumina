@@ -825,6 +825,105 @@ Track each major implementation milestone here. Keep entries brief: what was add
   - `python -m pytest`: **157 passed**, 0 failed.
 - **Status**: Phase 4 image-only integration complete. Native scanning is available in the real worker for local images, while `PhysicalDrive`, VSS, and UI-visible native streaming remain intentionally out of scope.
 
+### Chantier A — Multi-filesystem parsers (FAT32, exFAT, ext4, HFS+, APFS)
+
+- **Context**: Parsers for FAT32 and exFAT already existed in `app/core/fs_parser.py`; ext4, HFS+, and APFS were added, and test suites were written for all five.
+- **Added**: `Ext4Parser(BaseFSParser)` in `app/core/fs_parser.py`.
+  - `probe()`: superblock at offset 1024, magic `0xEF53`, validates block size (1024–8192), inode size ({128,256,512}).
+  - `enumerate_files()`: group descriptor table, inode table per group, extent tree (magic `0xF30A`, depth-0 leaf entries), block pointer fallback, recursive directory walk from inode 2; deleted inodes (i_dtime ≠ 0 or i_links_count = 0) → integrity 60.
+  - Limitations (v1): no journal replay, no inline data, no xattrs.
+- **Added**: `HFSPlusParser(BaseFSParser)` in `app/core/fs_parser.py`.
+  - `probe()`: Volume Header at offset 1024, signatures `H+` (0x482B) or `HX` (0x4858), Big-Endian block size ≥ 512 and power-of-2.
+  - `enumerate_files()`: locates Catalog B-Tree via Volume Header catalogFile extent record, traverses leaf nodes (kind == -1), extracts Catalog File Records (dataFork extents → data_runs).
+  - Limitations (v1): no journal replay, no resource forks, no HFS+ compression.
+- **Added**: `APFSParser(BaseFSParser)` in `app/core/fs_parser.py`.
+  - `probe()`: NX Superblock at offset 0, magic `NXSB` at bytes 32–35, `nx_block_size ≥ 4096`.
+  - `enumerate_files()`: stub — logs "APFS detected — full enumeration not implemented in v1" and returns 0; recovery uses FileCarver carving pass.
+- **Updated**: `FS_PARSERS` registry: `[NTFSParser, FAT32Parser, ExFATParser, Ext4Parser, HFSPlusParser, APFSParser]`.
+- **Added test files**: `tests/test_fat32_parser.py` (17 tests), `tests/test_exfat_parser.py` (12 tests), `tests/test_ext4_parser.py` (16 tests), `tests/test_hfsplus_parser.py` (13 tests), `tests/test_apfs_parser.py` (15 tests).
+- **Architectural decisions validated**:
+  - All parsers follow the `BaseFSParser` contract: `probe()` swallows exceptions silently (logged at DEBUG), `enumerate_files()` takes stop_flag/progress_cb/file_found_cb callbacks.
+  - Registry order is specificity-first: NTFS → FAT32 → exFAT → ext4 → HFS+ → APFS.
+  - APFS v1 is probe-only; full B-Tree traversal deferred (spec ~200 pages, encryption/snapshots/clones out of scope).
+  - `fs` field in emitted `file_info` is always the parser's `.name` attribute (e.g. `"ext4"`, `"HFS+"`).
+- **Test result**: 221 passed (all non-PyQt6 tests), 0 failed.
+
+### Chantier F — Centralized color palette
+
+- **Existing**: `app/ui/palette.py` already defined Win98 palette constants (`WIN98_SILVER`, `WIN98_NAVY`, etc.) and high-level aliases (`CARD`, `ACCENT`, `BEVEL_LIGHT`, `BEVEL_SHADOW`, `TEXT`, `SUB`, `MUTED`, `OK`, `WARN`, `ERR`, `HOVER`, etc.).
+- **Updated**: Four screen files that still used inline hex strings were migrated to import from `palette.py`:
+  - `app/ui/screen_home.py` — added 10-constant import, all 75 inline hex strings replaced with palette variable references (f-strings).
+  - `app/ui/screen_scan.py` — added 11-constant import, all Win98 hex strings replaced.
+  - `app/ui/screen_sd_card.py` — added 7-constant import, all inline hex replaced.
+  - `app/ui/screen_results.py` — added 9-constant import; Win98 palette colors replaced; gradient colors in `_THUMB_GRAD` dict left as-is (file-type-specific, not palette colors).
+- **Already imported**: `main_window.py`, `screen_partitions.py`, `screen_repair.py`, `screen_tools.py`.
+- **Architectural decisions validated**:
+  - `_THUMB_GRAD` gradient tuples remain as raw hex — they are per-filetype aesthetic data, not UI palette constants.
+  - Palette variables imported with `as _NAME` convention (leading underscore = module-private).
+  - No visual regression risk: all replaced values are byte-for-byte identical to the palette constants.
+- **Test result**: 0 new tests (UI layer excluded from coverage); all 296 existing tests continue to pass.
+
+### Chantier C1 — CLI scriptable interface
+
+- **Added**: `app/cli/__init__.py` (empty package marker) and `app/cli/main.py`.
+  - Subcommands: `scan`, `list-disks`, `recover`, `info`, `version`.
+  - `scan`: synchronous (no QThread) scan using `FileCarver` + `detect_fs` + `_DedupIndex` directly; Phase 1 FS enumeration (dedup) + Phase 2 carving (deep only); `--mode quick|deep`, `--engine auto|native|python`, `--output`, `--format json|csv|dfxml`, `--report`, `--types`, `--min-size`, `--max-size`, `--no-recover`, `--hash`, `--verbose`, `--quiet`, `--progress`.
+  - Output: JSONL streaming to stdout in `--format json` without `--report`; progression to stderr; exit codes 0/1/2/3.
+  - `list-disks`: table or JSON output from `DiskDetector.list_disks()`.
+  - `recover`: re-extracts files from a saved JSON report.
+  - `info`: opens device, calls `detect_fs()`, reports FS type and file size.
+  - SIGINT handled via `threading.Event` for cooperative stop.
+- **Added test file**: `tests/test_cli.py` (39 tests covering parser, subcommands, emit functions, platform module).
+- **Architectural decisions validated**:
+  - CLI never imports PyQt6; reuses `FileCarver`, `detect_fs`, `_DedupIndex`, `DiskDetector` directly.
+  - `_run_scan_sync()` is the headless equivalent of `ScanWorker._run_real()` — same logic, callback-driven, no Qt dependency.
+  - Platform-aware raw device conversion via `app.core.platform.to_raw_device()`.
+
+### Chantier B1/B2 — Platform abstraction
+
+- **Added**: `app/core/platform.py` — OS-agnostic utilities.
+  - `is_admin()`: Windows → `ctypes.windll.shell32.IsUserAnAdmin()`; POSIX → `os.geteuid() == 0`.
+  - `request_elevation(script_path)`: Windows → `ShellExecuteW runas`; macOS → `osascript with administrator privileges`; Linux → logs warning with `sudo` instructions.
+  - `to_raw_device(device)`: Windows → `\\.\X:`; macOS → `/dev/disk*` → `/dev/rdisk*`; Linux → unchanged.
+  - `settings_dir()`: Windows → `%APPDATA%/Lumina`; macOS → `~/Library/Application Support/Lumina`; Linux → `$XDG_CONFIG_HOME/lumina`.
+  - `log_dir()`: Windows → `logs/` (relative to exe); macOS → `~/Library/Logs/Lumina`; Linux → `$XDG_DATA_HOME/lumina/logs`.
+  - `smart_command(disk)`: Windows → PowerShell `Get-CimInstance`; Linux/macOS → `smartctl -a --json`.
+  - `fsck_command(device)`: Windows → `chkdsk /scan`; macOS → `diskutil verifyVolume`; Linux → `fsck -n`.
+- **Platform tests** included in `tests/test_cli.py` (8 platform-specific tests via `unittest.mock.patch`).
+- **Architectural decisions validated**:
+  - No import of `ctypes` or `subprocess` at module level — only inside each function; safe on all platforms.
+  - `PLATFORM = sys.platform` as a module-level constant allows easy mocking in tests.
+
+### Chantier D1/D2 — JPEG and MP4 file repair
+
+- **Added**: `app/core/repair/__init__.py` (empty) and `app/core/repair/jpeg_repair.py`.
+  - `repair_jpeg(input_path, output_path)` → `RepairReport` dataclass.
+  - Strategy 1: garbage before SOI → strip; missing SOI → prepend `FF D8`.
+  - Strategy 2: marker structure walk — handles fill bytes, byte-stuffing, RST markers, SOS entropy stream scan; invalid segment length → skip to next valid marker.
+  - Strategy 3: missing EOI → append `FF D9`.
+  - Returns `RepairReport(original_size, repaired_size, issues_found, repaired)`.
+  - `is_valid_jpeg(path)`: quick SOI + EOI presence check.
+- **Added**: `app/core/repair/mp4_repair.py`.
+  - `repair_mp4(input_path, output_path)` → `Mp4RepairReport`.
+  - `_parse_atoms(data)`: walks top-level ISO BMFF atoms; handles 32-bit size, 64-bit extended size (`size==1`), `size==0` (extends to EOF); clamps overflowing atoms.
+  - Strategy 1: if `moov` is after `mdat` → reorder: ftyp → moov → rest (fast-start).
+  - Strategy 2: detect atoms with declared size > file size and report them.
+  - Missing `moov`: noted in report; full moov reconstruction deferred (codec-specific, out of scope for v1).
+  - `is_valid_mp4(path)`: checks for presence of `ftyp` or `moov` atoms.
+- **Added test files**: `tests/test_jpeg_repair.py` (16 tests), `tests/test_mp4_repair.py` (20 tests).
+- **Architectural decisions validated**:
+  - stdlib-only: no Pillow, no external MP4 libraries.
+  - JPEG repair never discards data outside the SOI..EOI range; SOS entropy scan uses proper stuffing/RST rules from ISO/IEC 10918-1.
+  - MP4 repair does not re-mux or re-encode; it only reorders atom blobs and logs structure issues.
+  - Both repair functions write to a separate output file by default (`input + ".repaired.jpg"` / `".repaired.mp4"`).
+- **Test result**: 75 tests (CLI 39 + JPEG 16 + MP4 20), all pass.
+
+### Grand total after roadmap completion
+
+- **Test result**: **296 passed**, 0 failed (full non-PyQt6 suite).
+- **New files**: `app/core/repair/__init__.py`, `app/core/repair/jpeg_repair.py`, `app/core/repair/mp4_repair.py`, `app/core/platform.py`, `app/cli/__init__.py`, `app/cli/main.py`, `tests/test_fat32_parser.py`, `tests/test_exfat_parser.py`, `tests/test_ext4_parser.py`, `tests/test_hfsplus_parser.py`, `tests/test_apfs_parser.py`, `tests/test_cli.py`, `tests/test_jpeg_repair.py`, `tests/test_mp4_repair.py`.
+- **Modified files**: `app/core/fs_parser.py` (ext4/HFS+/APFS added, registry extended), `app/ui/screen_home.py`, `app/ui/screen_scan.py`, `app/ui/screen_sd_card.py`, `app/ui/screen_results.py` (palette migration).
+
 ### Update policy
 
 Append a new section to this changelog **every time a major implementation is finished**. Keep each entry to: what was added, files touched, key architectural decisions validated.

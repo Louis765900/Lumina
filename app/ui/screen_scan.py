@@ -28,6 +28,19 @@ from app.core.i18n import t
 from app.core.recovery import ensure_lumina_log
 from app.core.settings import is_demo_enabled
 from app.workers.scan_worker import ScanWorker
+from app.ui.palette import (
+    ACCENT as _ACCENT,
+    BEVEL_INSET_LIGHT as _BEVEL_INSET_LIGHT,
+    BEVEL_INSET_SHADOW as _BEVEL_INSET_SHADOW,
+    BEVEL_LIGHT as _BEVEL_LIGHT,
+    BEVEL_SHADOW as _BEVEL_SHADOW,
+    CARD as _CARD,
+    MUTED as _MUTED,
+    OK as _OK,
+    SUB as _SUB,
+    TEXT as _TEXT,
+    WARN as _WARN,
+)
 
 # Categories de types pour le compteur live
 _CAT_MAP: dict[str, set[str]] = {
@@ -67,11 +80,11 @@ class _Win98ProgressBar(QWidget):
         self._paused  = False
         self.setFixedHeight(28)
         self.setStyleSheet(
-            "background-color: #FFFFFF;"
-            "border-top: 2px solid #808080;"
-            "border-left: 2px solid #808080;"
-            "border-bottom: 2px solid #FFFFFF;"
-            "border-right: 2px solid #FFFFFF;"
+            f"background-color: {_BEVEL_LIGHT};"
+            f"border-top: 2px solid {_BEVEL_INSET_LIGHT};"
+            f"border-left: 2px solid {_BEVEL_INSET_LIGHT};"
+            f"border-bottom: 2px solid {_BEVEL_INSET_SHADOW};"
+            f"border-right: 2px solid {_BEVEL_INSET_SHADOW};"
         )
 
     def set_value(self, v: int):
@@ -88,11 +101,11 @@ class _Win98ProgressBar(QWidget):
         h = self.height()
 
         # Background
-        p.fillRect(0, 0, w, h, QColor("#FFFFFF"))
+        p.fillRect(0, 0, w, h, QColor(_BEVEL_LIGHT))
 
         if self._value > 0:
             fill_w = int(w * self._value / 100)
-            color  = QColor("#808000") if self._paused else QColor("#000080")
+            color  = QColor(_WARN) if self._paused else QColor(_ACCENT)
 
             # Draw segments (each segment is 8px wide with 1px gap)
             seg_w = 10
@@ -121,28 +134,28 @@ class _FileRow(QWidget):
         ico = QLabel(f"[{icon}]")
         ico.setFixedWidth(36)
         ico.setStyleSheet(
-            "color: #000080; font-size: 9px; font-weight: 700;"
+            f"color: {_ACCENT}; font-size: 9px; font-weight: 700;"
             "background: transparent; font-family: 'Work Sans', Arial;"
         )
 
         nam = QLabel(name)
         nam.setStyleSheet(
-            "color: #000000; font-size: 10px;"
+            f"color: {_TEXT}; font-size: 10px;"
             "font-family: 'Work Sans', Arial; background: transparent;"
         )
 
         meta_lbl = QLabel(meta)
         meta_lbl.setStyleSheet(
-            "color: #404040; font-size: 10px;"
+            f"color: {_SUB}; font-size: 10px;"
             "font-family: 'Work Sans', Arial; background: transparent;"
         )
 
         if integrity >= 90:
-            sc, st = "#008000", "OK"
+            sc, st = _OK, "OK"
         elif integrity >= 60:
-            sc, st = "#000080", "Partiel"
+            sc, st = _ACCENT, "Partiel"
         else:
-            sc, st = "#808000", "Degrade"
+            sc, st = _WARN, "Degrade"
 
         status = QLabel(st)
         status.setFixedWidth(46)
@@ -174,7 +187,7 @@ class ScanScreen(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setStyleSheet("background-color: #C0C0C0;")
+        self.setStyleSheet(f"background-color: {_CARD};")
         self._worker: ScanWorker | None = None
         self._disk: dict = {}
         self._found_count  = 0
@@ -199,13 +212,13 @@ class ScanScreen(QWidget):
         hdr_frame = QFrame()
         hdr_frame.setFixedHeight(50)
         hdr_frame.setStyleSheet(
-            "QFrame {"
-            "  background-color: #C0C0C0;"
-            "  border-top: 2px solid #FFFFFF;"
-            "  border-left: 2px solid #FFFFFF;"
-            "  border-bottom: 2px solid #808080;"
-            "  border-right: 2px solid #808080;"
-            "}"
+            f"QFrame {{"
+            f"  background-color: {_CARD};"
+            f"  border-top: 2px solid {_BEVEL_LIGHT};"
+            f"  border-left: 2px solid {_BEVEL_LIGHT};"
+            f"  border-bottom: 2px solid {_BEVEL_SHADOW};"
+            f"  border-right: 2px solid {_BEVEL_SHADOW};"
+            f"}}"
         )
         hdr_lay = QHBoxLayout(hdr_frame)
         hdr_lay.setContentsMargins(8, 4, 8, 4)
@@ -215,11 +228,11 @@ class ScanScreen(QWidget):
         self._title    = QLabel("Analyse en cours...")
         self._disk_lbl = QLabel("")
         self._title.setStyleSheet(
-            "color: #000000; font-size: 12px; font-weight: 700;"
+            f"color: {_TEXT}; font-size: 12px; font-weight: 700;"
             "font-family: 'Work Sans', Arial; background: transparent;"
         )
         self._disk_lbl.setStyleSheet(
-            "color: #404040; font-size: 10px;"
+            f"color: {_SUB}; font-size: 10px;"
             "font-family: 'Work Sans', Arial; background: transparent;"
         )
         left_col.addWidget(self._title)
@@ -241,7 +254,7 @@ class ScanScreen(QWidget):
 
         # ── Barre de progression ───────────────────────────────────────────────
         prog_frame = QFrame()
-        prog_frame.setStyleSheet("QFrame { background-color: #C0C0C0; border: 0px; }")
+        prog_frame.setStyleSheet(f"QFrame {{ background-color: {_CARD}; border: 0px; }}")
         prog_lay = QVBoxLayout(prog_frame)
         prog_lay.setContentsMargins(0, 0, 0, 0)
         prog_lay.setSpacing(4)
@@ -252,17 +265,17 @@ class ScanScreen(QWidget):
         prog_info = QHBoxLayout()
         self._pct_lbl = QLabel("0%")
         self._pct_lbl.setStyleSheet(
-            "color: #000000; font-size: 11px; font-weight: 700; background: transparent;"
+            f"color: {_TEXT}; font-size: 11px; font-weight: 700; background: transparent;"
             "font-family: 'Work Sans', Arial;"
         )
         self._status_lbl = QLabel("Initialisation...")
         self._status_lbl.setStyleSheet(
-            "color: #000080; font-size: 10px; background: transparent;"
+            f"color: {_ACCENT}; font-size: 10px; background: transparent;"
             "font-family: 'Work Sans', Arial;"
         )
         self._eta_lbl = QLabel("")
         self._eta_lbl.setStyleSheet(
-            "color: #404040; font-size: 10px; background: transparent;"
+            f"color: {_SUB}; font-size: 10px; background: transparent;"
             "font-family: 'Work Sans', Arial;"
         )
         prog_info.addWidget(self._pct_lbl)
@@ -283,13 +296,13 @@ class ScanScreen(QWidget):
         stats_frame = QFrame()
         stats_frame.setFixedHeight(28)
         stats_frame.setStyleSheet(
-            "QFrame {"
-            "  background-color: #FFFFFF;"
-            "  border-top: 2px solid #808080;"
-            "  border-left: 2px solid #808080;"
-            "  border-bottom: 2px solid #FFFFFF;"
-            "  border-right: 2px solid #FFFFFF;"
-            "}"
+            f"QFrame {{"
+            f"  background-color: {_BEVEL_LIGHT};"
+            f"  border-top: 2px solid {_BEVEL_INSET_LIGHT};"
+            f"  border-left: 2px solid {_BEVEL_INSET_LIGHT};"
+            f"  border-bottom: 2px solid {_BEVEL_INSET_SHADOW};"
+            f"  border-right: 2px solid {_BEVEL_INSET_SHADOW};"
+            f"}}"
         )
         stats_row = QHBoxLayout(stats_frame)
         stats_row.setContentsMargins(6, 0, 6, 0)
@@ -297,22 +310,22 @@ class ScanScreen(QWidget):
 
         self._counter_lbl = QLabel("0 fichier detecte")
         self._counter_lbl.setStyleSheet(
-            "color: #000080; font-size: 10px; font-weight: 700; background: transparent;"
+            f"color: {_ACCENT}; font-size: 10px; font-weight: 700; background: transparent;"
             "font-family: 'Work Sans', Arial;"
         )
         self._speed_lbl = QLabel("")
         self._speed_lbl.setStyleSheet(
-            "color: #404040; font-size: 10px; background: transparent;"
+            f"color: {_SUB}; font-size: 10px; background: transparent;"
             "font-family: 'Work Sans', Arial;"
         )
         self._elapsed_lbl = QLabel("")
         self._elapsed_lbl.setStyleSheet(
-            "color: #404040; font-size: 10px; background: transparent;"
+            f"color: {_SUB}; font-size: 10px; background: transparent;"
             "font-family: 'Work Sans', Arial;"
         )
         self._bad_lbl = QLabel("")
         self._bad_lbl.setStyleSheet(
-            "color: #808000; font-size: 10px; background: transparent;"
+            f"color: {_WARN}; font-size: 10px; background: transparent;"
             "font-family: 'Work Sans', Arial;"
         )
 
@@ -326,7 +339,7 @@ class ScanScreen(QWidget):
         # ── Compteurs par categorie ────────────────────────────────────────────
         cat_frame = QFrame()
         cat_frame.setFixedHeight(22)
-        cat_frame.setStyleSheet("QFrame { background-color: #C0C0C0; border: 0px; }")
+        cat_frame.setStyleSheet(f"QFrame {{ background-color: {_CARD}; border: 0px; }}")
         cat_row = QHBoxLayout(cat_frame)
         cat_row.setContentsMargins(0, 0, 0, 0)
         cat_row.setSpacing(12)
@@ -335,7 +348,7 @@ class ScanScreen(QWidget):
         for cat in ("Images", "Videos", "Audio", "Documents", "Archives", "Autres"):
             lbl = QLabel(f"{cat}: 0")
             lbl.setStyleSheet(
-                "color: #808080; font-size: 10px; background: transparent;"
+                f"color: {_MUTED}; font-size: 10px; background: transparent;"
                 "font-family: 'Work Sans', Arial;"
             )
             self._cat_lbls[cat] = lbl
@@ -346,13 +359,13 @@ class ScanScreen(QWidget):
         # ── Log en temps reel ──────────────────────────────────────────────────
         log_frame = QFrame()
         log_frame.setStyleSheet(
-            "QFrame {"
-            "  background-color: #FFFFFF;"
-            "  border-top: 2px solid #808080;"
-            "  border-left: 2px solid #808080;"
-            "  border-bottom: 2px solid #FFFFFF;"
-            "  border-right: 2px solid #FFFFFF;"
-            "}"
+            f"QFrame {{"
+            f"  background-color: {_BEVEL_LIGHT};"
+            f"  border-top: 2px solid {_BEVEL_INSET_LIGHT};"
+            f"  border-left: 2px solid {_BEVEL_INSET_LIGHT};"
+            f"  border-bottom: 2px solid {_BEVEL_INSET_SHADOW};"
+            f"  border-right: 2px solid {_BEVEL_INSET_SHADOW};"
+            f"}}"
         )
         log_col = QVBoxLayout(log_frame)
         log_col.setContentsMargins(0, 0, 0, 0)
@@ -362,13 +375,13 @@ class ScanScreen(QWidget):
         log_hdr = QWidget()
         log_hdr.setFixedHeight(20)
         log_hdr.setStyleSheet(
-            "background-color: #000080; border: 0px;"
+            f"background-color: {_ACCENT}; border: 0px;"
         )
         hdr_l = QHBoxLayout(log_hdr)
         hdr_l.setContentsMargins(6, 0, 6, 0)
         log_title = QLabel("Fichiers detectes en temps reel")
         log_title.setStyleSheet(
-            "color: #FFFFFF; font-size: 10px; font-weight: 700;"
+            f"color: {_BEVEL_LIGHT}; font-size: 10px; font-weight: 700;"
             "font-family: 'Work Sans', Arial; background: transparent;"
         )
         hdr_l.addWidget(log_title)
@@ -404,7 +417,7 @@ class ScanScreen(QWidget):
         for cat, lbl in self._cat_lbls.items():
             lbl.setText(f"{cat}: 0")
             lbl.setStyleSheet(
-                "color: #808080; font-size: 10px; background: transparent;"
+                f"color: {_MUTED}; font-size: 10px; background: transparent;"
                 "font-family: 'Work Sans', Arial;"
             )
 

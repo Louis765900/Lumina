@@ -27,6 +27,18 @@ from PyQt6.QtWidgets import (
 )
 
 from app.core.disk_detector import DiskDetector
+from app.ui.palette import (
+    ACCENT as _ACCENT,
+    BEVEL_INSET_LIGHT as _BEVEL_INSET_LIGHT,
+    BEVEL_INSET_SHADOW as _BEVEL_INSET_SHADOW,
+    BEVEL_LIGHT as _BEVEL_LIGHT,
+    BEVEL_SHADOW as _BEVEL_SHADOW,
+    CARD as _CARD,
+    HOVER as _HOVER,
+    MUTED as _MUTED,
+    SUB as _SUB,
+    TEXT as _TEXT,
+)
 
 _HISTORY_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
@@ -95,11 +107,11 @@ class _UsageBar(QWidget):
         self._pct = max(0.0, min(1.0, pct))
         self.setFixedHeight(self.H)
         self.setStyleSheet(
-            "background-color: #FFFFFF;"
-            "border-top: 1px solid #808080;"
-            "border-left: 1px solid #808080;"
-            "border-bottom: 1px solid #FFFFFF;"
-            "border-right: 1px solid #FFFFFF;"
+            f"background-color: {_BEVEL_LIGHT};"
+            f"border-top: 1px solid {_BEVEL_SHADOW};"
+            f"border-left: 1px solid {_BEVEL_SHADOW};"
+            f"border-bottom: 1px solid {_BEVEL_LIGHT};"
+            f"border-right: 1px solid {_BEVEL_LIGHT};"
         )
 
     def paintEvent(self, _):
@@ -107,11 +119,11 @@ class _UsageBar(QWidget):
         w = self.width()
         h = self.height()
         # Background
-        p.fillRect(0, 0, w, h, QColor("#FFFFFF"))
+        p.fillRect(0, 0, w, h, QColor(f"{_BEVEL_LIGHT}"))
         # Filled portion
         fw = int(w * self._pct)
         if fw > 0:
-            p.fillRect(0, 0, fw, h, QColor("#000080"))
+            p.fillRect(0, 0, fw, h, QColor(f"{_ACCENT}"))
         p.end()
 
 
@@ -150,7 +162,7 @@ class DiskCard(QFrame):
         badge.setFixedSize(32, 16)
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         badge.setStyleSheet(
-            "background-color: #000080; color: #FFFFFF;"
+            f"background-color: {_ACCENT}; color: {_BEVEL_LIGHT};"
             "font-size: 9px; font-weight: 700;"
             "font-family: 'Work Sans', Arial;"
         )
@@ -162,12 +174,12 @@ class DiskCard(QFrame):
             name = name[:26] + "..."
         n_lbl = QLabel(name)
         n_lbl.setStyleSheet(
-            "color: #000000; font-size: 11px; font-weight: 700;"
+            f"color: {_TEXT}; font-size: 11px; font-weight: 700;"
             "font-family: 'Work Sans', Arial; background: transparent;"
         )
         d_lbl = QLabel(disk.get("device", ""))
         d_lbl.setStyleSheet(
-            "color: #404040; font-size: 10px;"
+            f"color: {_SUB}; font-size: 10px;"
             "font-family: 'Work Sans', Arial; background: transparent;"
         )
         info.addWidget(n_lbl)
@@ -185,12 +197,12 @@ class DiskCard(QFrame):
         )
         v_lbl = QLabel(vol_txt)
         v_lbl.setStyleSheet(
-            "color: #000000; font-size: 10px; background: transparent;"
+            f"color: {_TEXT}; font-size: 10px; background: transparent;"
             "font-family: 'Work Sans', Arial;"
         )
         p_lbl = QLabel(f"{int(pct * 100)}%")
         p_lbl.setStyleSheet(
-            "color: #000080; font-size: 10px; font-weight: 700; background: transparent;"
+            f"color: {_ACCENT}; font-size: 10px; font-weight: 700; background: transparent;"
             "font-family: 'Work Sans', Arial;"
         )
         stats.addWidget(v_lbl)
@@ -203,21 +215,21 @@ class DiskCard(QFrame):
         if hovered:
             self.setStyleSheet(
                 "DiskCard {"
-                "  background-color: #D4D0C8;"
-                "  border-top: 2px solid #808080;"
-                "  border-left: 2px solid #808080;"
-                "  border-bottom: 2px solid #FFFFFF;"
-                "  border-right: 2px solid #FFFFFF;"
+                f"  background-color: {_HOVER};"
+                f"  border-top: 2px solid {_BEVEL_SHADOW};"
+                f"  border-left: 2px solid {_BEVEL_SHADOW};"
+                f"  border-bottom: 2px solid {_BEVEL_LIGHT};"
+                f"  border-right: 2px solid {_BEVEL_LIGHT};"
                 "}"
             )
         else:
             self.setStyleSheet(
                 "DiskCard {"
-                "  background-color: #C0C0C0;"
-                "  border-top: 2px solid #FFFFFF;"
-                "  border-left: 2px solid #FFFFFF;"
-                "  border-bottom: 2px solid #808080;"
-                "  border-right: 2px solid #808080;"
+                f"  background-color: {_CARD};"
+                f"  border-top: 2px solid {_BEVEL_LIGHT};"
+                f"  border-left: 2px solid {_BEVEL_LIGHT};"
+                f"  border-bottom: 2px solid {_BEVEL_SHADOW};"
+                f"  border-right: 2px solid {_BEVEL_SHADOW};"
                 "}"
             )
 
@@ -258,7 +270,7 @@ class _ScenarioCard(QFrame):
 
         t = QLabel(title)
         t.setStyleSheet(
-            "color: #000000; font-size: 11px; font-weight: 700;"
+            f"color: {_TEXT}; font-size: 11px; font-weight: 700;"
             "font-family: 'Work Sans', Arial; background: transparent;"
         )
         lay.addWidget(t)
@@ -266,7 +278,7 @@ class _ScenarioCard(QFrame):
         d = QLabel(desc)
         d.setWordWrap(True)
         d.setStyleSheet(
-            "color: #404040; font-size: 10px;"
+            f"color: {_SUB}; font-size: 10px;"
             "font-family: 'Work Sans', Arial; background: transparent;"
         )
         lay.addWidget(d, stretch=1)
@@ -275,21 +287,21 @@ class _ScenarioCard(QFrame):
         if hovered:
             self.setStyleSheet(
                 "_ScenarioCard {"
-                "  background-color: #D4D0C8;"
-                "  border-top: 2px solid #808080;"
-                "  border-left: 2px solid #808080;"
-                "  border-bottom: 2px solid #FFFFFF;"
-                "  border-right: 2px solid #FFFFFF;"
+                f"  background-color: {_HOVER};"
+                f"  border-top: 2px solid {_BEVEL_SHADOW};"
+                f"  border-left: 2px solid {_BEVEL_SHADOW};"
+                f"  border-bottom: 2px solid {_BEVEL_LIGHT};"
+                f"  border-right: 2px solid {_BEVEL_LIGHT};"
                 "}"
             )
         else:
             self.setStyleSheet(
                 "_ScenarioCard {"
-                "  background-color: #C0C0C0;"
-                "  border-top: 2px solid #FFFFFF;"
-                "  border-left: 2px solid #FFFFFF;"
-                "  border-bottom: 2px solid #808080;"
-                "  border-right: 2px solid #808080;"
+                f"  background-color: {_CARD};"
+                f"  border-top: 2px solid {_BEVEL_LIGHT};"
+                f"  border-left: 2px solid {_BEVEL_LIGHT};"
+                f"  border-bottom: 2px solid {_BEVEL_SHADOW};"
+                f"  border-right: 2px solid {_BEVEL_SHADOW};"
                 "}"
             )
 
@@ -321,23 +333,23 @@ class _QuickCard(QPushButton):
         self.setText(label)
         self.setStyleSheet(
             "QPushButton {"
-            "  background-color: #C0C0C0;"
-            "  color: #000000;"
+            f"  background-color: {_CARD};"
+            f"  color: {_TEXT};"
             "  font-size: 11px; font-weight: 400;"
             "  font-family: 'Work Sans', Arial;"
-            "  border-top: 2px solid #FFFFFF;"
-            "  border-left: 2px solid #FFFFFF;"
-            "  border-bottom: 2px solid #808080;"
-            "  border-right: 2px solid #808080;"
+            f"  border-top: 2px solid {_BEVEL_LIGHT};"
+            f"  border-left: 2px solid {_BEVEL_LIGHT};"
+            f"  border-bottom: 2px solid {_BEVEL_SHADOW};"
+            f"  border-right: 2px solid {_BEVEL_SHADOW};"
             "}"
             "QPushButton:hover {"
-            "  background-color: #D4D0C8;"
+            f"  background-color: {_HOVER};"
             "}"
             "QPushButton:pressed {"
-            "  border-top: 2px solid #808080;"
-            "  border-left: 2px solid #808080;"
-            "  border-bottom: 2px solid #FFFFFF;"
-            "  border-right: 2px solid #FFFFFF;"
+            f"  border-top: 2px solid {_BEVEL_SHADOW};"
+            f"  border-left: 2px solid {_BEVEL_SHADOW};"
+            f"  border-bottom: 2px solid {_BEVEL_LIGHT};"
+            f"  border-right: 2px solid {_BEVEL_LIGHT};"
             "  padding-top: 2px; padding-left: 2px;"
             "}"
         )
@@ -383,14 +395,14 @@ class _HistoryRow(QFrame):
 
         date_lbl = QLabel(date_str)
         date_lbl.setStyleSheet(
-            "color: #404040; font-size: 10px; background: transparent;"
+            f"color: {_SUB}; font-size: 10px; background: transparent;"
             "font-family: 'Work Sans', Arial;"
         )
         lay.addWidget(date_lbl)
 
         dev_lbl = QLabel(entry.get("device", "-"))
         dev_lbl.setStyleSheet(
-            "color: #000000; font-size: 10px; font-weight: 700; background: transparent;"
+            f"color: {_TEXT}; font-size: 10px; font-weight: 700; background: transparent;"
             "font-family: 'Work Sans', Arial;"
         )
         lay.addWidget(dev_lbl)
@@ -399,14 +411,14 @@ class _HistoryRow(QFrame):
         if entry.get("simulated"):
             sim_lbl = QLabel("[simulation]")
             sim_lbl.setStyleSheet(
-                "color: #808080; font-size: 10px; background: transparent;"
+                f"color: {_BEVEL_SHADOW}; font-size: 10px; background: transparent;"
             )
             lay.addWidget(sim_lbl)
 
         n = entry.get("file_count", 0)
         count_lbl = QLabel(f"{n} fichier{'s' if n != 1 else ''}")
         count_lbl.setStyleSheet(
-            "color: #000080; font-size: 10px; font-weight: 700; background: transparent;"
+            f"color: {_ACCENT}; font-size: 10px; font-weight: 700; background: transparent;"
             "font-family: 'Work Sans', Arial;"
         )
         lay.addWidget(count_lbl)
@@ -414,21 +426,21 @@ class _HistoryRow(QFrame):
         if self._can_reload:
             reload_lbl = QLabel("[recharger]")
             reload_lbl.setStyleSheet(
-                "color: #808080; font-size: 10px; background: transparent;"
+                f"color: {_BEVEL_SHADOW}; font-size: 10px; background: transparent;"
             )
             lay.addWidget(reload_lbl)
 
     def _set_style(self, hovered: bool):
         if hovered and self._can_reload:
             self.setStyleSheet(
-                "_HistoryRow { background-color: #000080; border: 0px; }"
+                f"_HistoryRow { background-color: {_ACCENT}; border: 0px; }"
             )
             for child in self.findChildren(QLabel):
                 child.setStyleSheet(
-                    child.styleSheet().replace("color: #000000", "color: #FFFFFF")
-                    .replace("color: #404040", "color: #FFFFFF")
-                    .replace("color: #000080", "color: #FFFFFF")
-                    .replace("color: #808080", "color: #FFFFFF")
+                    child.styleSheet().replace(f"color: {_TEXT}", f"color: {_BEVEL_LIGHT}")
+                    .replace(f"color: {_SUB}", f"color: {_BEVEL_LIGHT}")
+                    .replace(f"color: {_ACCENT}", f"color: {_BEVEL_LIGHT}")
+                    .replace(f"color: {_BEVEL_SHADOW}", f"color: {_BEVEL_LIGHT}")
                 )
         else:
             self.setStyleSheet(
@@ -469,7 +481,7 @@ class _SectionHdr(QWidget):
 
         lbl = QLabel(title)
         lbl.setStyleSheet(
-            "color: #000000; font-size: 11px; font-weight: 700;"
+            f"color: {_TEXT}; font-size: 11px; font-weight: 700;"
             "font-family: 'Work Sans', Arial; background: transparent;"
         )
         row.addWidget(lbl)
@@ -487,7 +499,7 @@ class HomeScreen(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setStyleSheet("background-color: #C0C0C0;")
+        self.setStyleSheet(f"background-color: {_CARD};")
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -497,15 +509,15 @@ class HomeScreen(QWidget):
         hdr = QWidget()
         hdr.setFixedHeight(40)
         hdr.setStyleSheet(
-            "background-color: #C0C0C0;"
-            "border-bottom: 2px solid #808080;"
+            f"background-color: {_CARD};"
+            f"border-bottom: 2px solid {_BEVEL_SHADOW};"
         )
         hr = QHBoxLayout(hdr)
         hr.setContentsMargins(8, 4, 8, 4)
 
         title_lbl = QLabel("Selectionnez un emplacement pour demarrer la recuperation")
         title_lbl.setStyleSheet(
-            "color: #000000; font-size: 12px; font-weight: 700;"
+            f"color: {_TEXT}; font-size: 12px; font-weight: 700;"
             "font-family: 'Work Sans', Arial; background: transparent;"
         )
         hr.addWidget(title_lbl)
@@ -524,11 +536,11 @@ class HomeScreen(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setStyleSheet(
-            "QScrollArea { background-color: #C0C0C0; border: none; }"
+            f"QScrollArea { background-color: {_CARD}; border: none; }"
         )
 
         self._content = QWidget()
-        self._content.setStyleSheet("background-color: #C0C0C0;")
+        self._content.setStyleSheet(f"background-color: {_CARD};")
         self._layout = QVBoxLayout(self._content)
         self._layout.setContentsMargins(12, 8, 12, 12)
         self._layout.setSpacing(16)
@@ -572,11 +584,11 @@ class HomeScreen(QWidget):
         panel = QFrame()
         panel.setStyleSheet(
             "QFrame {"
-            "  background-color: #FFFFFF;"
-            "  border-top: 2px solid #808080;"
-            "  border-left: 2px solid #808080;"
-            "  border-bottom: 2px solid #FFFFFF;"
-            "  border-right: 2px solid #FFFFFF;"
+            f"  background-color: {_BEVEL_LIGHT};"
+            f"  border-top: 2px solid {_BEVEL_SHADOW};"
+            f"  border-left: 2px solid {_BEVEL_SHADOW};"
+            f"  border-bottom: 2px solid {_BEVEL_LIGHT};"
+            f"  border-right: 2px solid {_BEVEL_LIGHT};"
             "}"
         )
         panel_lay = QVBoxLayout(panel)
@@ -603,7 +615,7 @@ class HomeScreen(QWidget):
         self._layout.addWidget(_SectionHdr("Scenarios de recuperation"))
 
         outer = QWidget()
-        outer.setStyleSheet("background-color: #C0C0C0;")
+        outer.setStyleSheet(f"background-color: {_CARD};")
         outer_lay = QVBoxLayout(outer)
         outer_lay.setContentsMargins(0, 0, 0, 0)
         outer_lay.setSpacing(8)
@@ -630,7 +642,7 @@ class HomeScreen(QWidget):
         self._layout.addWidget(_SectionHdr("Acces rapide"))
 
         wrap = QWidget()
-        wrap.setStyleSheet("background-color: #C0C0C0;")
+        wrap.setStyleSheet(f"background-color: {_CARD};")
         row = QHBoxLayout(wrap)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(8)
@@ -658,11 +670,11 @@ class HomeScreen(QWidget):
         panel = QFrame()
         panel.setStyleSheet(
             "QFrame {"
-            "  background-color: #FFFFFF;"
-            "  border-top: 2px solid #808080;"
-            "  border-left: 2px solid #808080;"
-            "  border-bottom: 2px solid #FFFFFF;"
-            "  border-right: 2px solid #FFFFFF;"
+            f"  background-color: {_BEVEL_LIGHT};"
+            f"  border-top: 2px solid {_BEVEL_SHADOW};"
+            f"  border-left: 2px solid {_BEVEL_SHADOW};"
+            f"  border-bottom: 2px solid {_BEVEL_LIGHT};"
+            f"  border-right: 2px solid {_BEVEL_LIGHT};"
             "}"
         )
         col = QVBoxLayout(panel)
@@ -677,7 +689,7 @@ class HomeScreen(QWidget):
             if i < len(entries) - 1:
                 sep = QFrame()
                 sep.setFixedHeight(1)
-                sep.setStyleSheet("background-color: #C0C0C0; border: 0px;")
+                sep.setStyleSheet(f"background-color: {_CARD}; border: 0px;")
                 col.addWidget(sep)
         self._layout.addWidget(panel)
 

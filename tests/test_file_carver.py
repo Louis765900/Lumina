@@ -706,7 +706,7 @@ class TestFSParserRegistry:
 
 class TestDedupIndex:
     def _new(self):
-        from app.workers.scan_worker import _DedupIndex
+        from app.core.dedup import _DedupIndex
         return _DedupIndex()
 
     def test_empty_index_never_overlaps(self):
