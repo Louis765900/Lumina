@@ -33,66 +33,81 @@ _MFT_ENTRY_SIZE = 1024
 _FILETIME_EPOCH = 116_444_736_000_000_000
 
 # Well-known MFT entry indices
-_IDX_ROOT           = 5   # Root directory ($.)  — parent of all top-level items
-_IDX_MAX_SYSTEM     = 11  # Indices 0-11 are NTFS metadata files; skip them
+_IDX_ROOT = 5  # Root directory ($.)  — parent of all top-level items
+_IDX_MAX_SYSTEM = 11  # Indices 0-11 are NTFS metadata files; skip them
 
 # MFT entry flags
-_FLAG_IN_USE        = 0x01
-_FLAG_DIR           = 0x02
+_FLAG_IN_USE = 0x01
+_FLAG_DIR = 0x02
 
 # Attribute type IDs we care about
 _ATTR_STANDARD_INFO = 0x10
-_ATTR_FILE_NAME     = 0x30
-_ATTR_DATA          = 0x80
-_ATTR_END           = 0xFFFF_FFFF
+_ATTR_FILE_NAME = 0x30
+_ATTR_DATA = 0x80
+_ATTR_END = 0xFFFF_FFFF
 
 # Batch size for MFT reads (entries per syscall -- 64 * 1024 = 64 KB)
-_BATCH              = 64
+_BATCH = 64
 
 # GPT basic-data-partition type GUID (little-endian encoding)
 # {EBD0A0A2-B9E5-4433-87C0-68B6B72699C7}
-_GPT_BASIC_DATA_GUID = bytes([
-    0xA2, 0xA0, 0xD0, 0xEB,        # EBD0A0A2  (LE)
-    0xE5, 0xB9,                    # B9E5      (LE)
-    0x33, 0x44,                    # 4433      (LE)
-    0x87, 0xC0,                    # 87C0      (BE — unchanged)
-    0x68, 0xB6, 0xB7, 0x26, 0x99, 0xC7,
-])
+_GPT_BASIC_DATA_GUID = bytes(
+    [
+        0xA2,
+        0xA0,
+        0xD0,
+        0xEB,  # EBD0A0A2  (LE)
+        0xE5,
+        0xB9,  # B9E5      (LE)
+        0x33,
+        0x44,  # 4433      (LE)
+        0x87,
+        0xC0,  # 87C0      (BE — unchanged)
+        0x68,
+        0xB6,
+        0xB7,
+        0x26,
+        0x99,
+        0xC7,
+    ]
+)
 
 
 # ── Data structures ────────────────────────────────────────────────────────────
 
+
 @dataclass
 class BootSector:
-    bytes_per_sector:      int
-    sectors_per_cluster:   int
-    cluster_size:          int   # = bytes_per_sector * sectors_per_cluster
-    mft_start_byte:        int   # Absolute byte offset of $MFT on device
-    total_sectors:         int
-    partition_offset:      int   # Byte offset of this NTFS volume on device (0 for logical vols)
+    bytes_per_sector: int
+    sectors_per_cluster: int
+    cluster_size: int  # = bytes_per_sector * sectors_per_cluster
+    mft_start_byte: int  # Absolute byte offset of $MFT on device
+    total_sectors: int
+    partition_offset: int  # Byte offset of this NTFS volume on device (0 for logical vols)
 
 
 @dataclass
 class DataRun:
-    start_cluster:    int   # Absolute LCN
-    length_clusters:  int
+    start_cluster: int  # Absolute LCN
+    length_clusters: int
 
 
 @dataclass
 class _MFTEntry:
-    index:         int
-    flags:         int
-    is_deleted:    bool
-    name:          str
-    parent_index:  int
-    size_bytes:    int
-    created:       datetime | None
-    modified:      datetime | None
-    data_runs:     list[DataRun] = field(default_factory=list)
+    index: int
+    flags: int
+    is_deleted: bool
+    name: str
+    parent_index: int
+    size_bytes: int
+    created: datetime | None
+    modified: datetime | None
+    data_runs: list[DataRun] = field(default_factory=list)
     resident_data: bytes | None = None
 
 
 # ── Pure helpers ───────────────────────────────────────────────────────────────
+
 
 def _filetime_to_dt(filetime: int) -> datetime | None:
     if filetime == 0:
@@ -120,14 +135,14 @@ def _decode_data_runs(run_list: bytes) -> list[DataRun]:
         if header == 0:
             break
         pos += 1
-        len_sz    = header & 0x0F
+        len_sz = header & 0x0F
         offset_sz = (header >> 4) & 0x0F
         if len_sz == 0 or pos + len_sz + offset_sz > len(run_list):
             break
-        length = int.from_bytes(run_list[pos:pos + len_sz], "little", signed=False)
+        length = int.from_bytes(run_list[pos : pos + len_sz], "little", signed=False)
         pos += len_sz
         if offset_sz:
-            delta = int.from_bytes(run_list[pos:pos + offset_sz], "little", signed=True)
+            delta = int.from_bytes(run_list[pos : pos + offset_sz], "little", signed=True)
             current_lcn += delta
             pos += offset_sz
         if length > 0 and current_lcn >= 0:
@@ -140,7 +155,7 @@ def _resolve_path(entry: _MFTEntry, dir_cache: dict[int, tuple[str, int]]) -> st
     parts: list[str] = [entry.name]
     visited: set[int] = {entry.index}
     cur = entry.parent_index
-    for _ in range(32):                        # depth cap — no infinite loops
+    for _ in range(32):  # depth cap — no infinite loops
         if cur in (_IDX_ROOT, 5):
             break
         if cur in visited:
@@ -165,7 +180,8 @@ def _file_ext(filename: str) -> str:
 
 
 def _runs_to_byte_ranges(
-    runs: list[DataRun], boot: BootSector,
+    runs: list[DataRun],
+    boot: BootSector,
 ) -> list[tuple[int, int]]:
     """Convert NTFS data runs (clusters) to absolute (byte_offset, byte_length) tuples."""
     return [
@@ -179,6 +195,7 @@ def _runs_to_byte_ranges(
 
 
 # ── BaseFSParser ───────────────────────────────────────────────────────────────
+
 
 class BaseFSParser(ABC):
     """
@@ -224,6 +241,7 @@ class BaseFSParser(ABC):
 
 
 # ── NTFSParser ─────────────────────────────────────────────────────────────────
+
 
 class NTFSParser(BaseFSParser):
     """
@@ -307,9 +325,9 @@ class NTFSParser(BaseFSParser):
         _log.info("[NTFSParser] MFT: %d entries to scan on %s.", total, self._device)
 
         # ── Pass 1 ────────────────────────────────────────────────────
-        dir_cache: dict[int, tuple[str, int]] = {5: ("", 5)}   # root → itself
-        active:    list[_MFTEntry] = []   # files still present on disk
-        deleted:   list[_MFTEntry] = []   # files no longer in use
+        dir_cache: dict[int, tuple[str, int]] = {5: ("", 5)}  # root → itself
+        active: list[_MFTEntry] = []  # files still present on disk
+        deleted: list[_MFTEntry] = []  # files no longer in use
 
         for batch_start in range(0, total, _BATCH):
             if stop_flag():
@@ -325,7 +343,7 @@ class NTFSParser(BaseFSParser):
                 continue
 
             for i in range(count):
-                chunk = raw[i * _MFT_ENTRY_SIZE:(i + 1) * _MFT_ENTRY_SIZE]
+                chunk = raw[i * _MFT_ENTRY_SIZE : (i + 1) * _MFT_ENTRY_SIZE]
                 if len(chunk) < _MFT_ENTRY_SIZE:
                     break
                 entry = self._parse_entry(batch_start + i, chunk)
@@ -345,7 +363,9 @@ class NTFSParser(BaseFSParser):
 
         _log.info(
             "[NTFSParser] Pass 1 done: %d dirs, %d active files, %d deleted files.",
-            len(dir_cache), len(active), len(deleted),
+            len(dir_cache),
+            len(active),
+            len(deleted),
         )
 
         # ── Pass 2 — emit active files first (integrity 95), then deleted (80) ──
@@ -356,25 +376,27 @@ class NTFSParser(BaseFSParser):
                 _log.info("[NTFSParser] Scan cancelled during Pass 2.")
                 break
 
-            path      = _resolve_path(entry, dir_cache)
-            ext       = _file_ext(entry.name)
-            ftype     = ext.upper().lstrip(".") if ext else "UNKNOWN"
-            offset    = self._runs_to_offset(entry.data_runs, boot)
+            path = _resolve_path(entry, dir_cache)
+            ext = _file_ext(entry.name)
+            ftype = ext.upper().lstrip(".") if ext else "UNKNOWN"
+            offset = self._runs_to_offset(entry.data_runs, boot)
             byte_runs = _runs_to_byte_ranges(entry.data_runs, boot)
 
-            file_found_cb({
-                "name":      entry.name,
-                "type":      ftype,
-                "offset":    offset,
-                "size_kb":   max(1, entry.size_bytes // 1024) if entry.size_bytes else 1,
-                "device":    self._device,
-                "integrity": integrity,
-                "mft_path":  path,
-                "source":    "mft",
-                "fs":        self.name,
-                "data_runs": byte_runs,
-                "deleted":   entry.is_deleted,
-            })
+            file_found_cb(
+                {
+                    "name": entry.name,
+                    "type": ftype,
+                    "offset": offset,
+                    "size_kb": max(1, entry.size_bytes // 1024) if entry.size_bytes else 1,
+                    "device": self._device,
+                    "integrity": integrity,
+                    "mft_path": path,
+                    "source": "mft",
+                    "fs": self.name,
+                    "data_runs": byte_runs,
+                    "deleted": entry.is_deleted,
+                }
+            )
             found += 1
 
             if j % 100 == 0:
@@ -383,7 +405,9 @@ class NTFSParser(BaseFSParser):
         progress_cb(100)
         _log.info(
             "[NTFSParser] MFT scan complete: %d active + %d deleted = %d files.",
-            len(active), len(deleted), found,
+            len(active),
+            len(deleted),
+            found,
         )
         return found
 
@@ -397,7 +421,7 @@ class NTFSParser(BaseFSParser):
             _log.warning("[NTFSParser] Cannot read sector 0: %s", exc)
             return -1
 
-        if len(sector0) < 512 or sector0[510:512] != b"\x55\xAA":
+        if len(sector0) < 512 or sector0[510:512] != b"\x55\xaa":
             _log.warning("[NTFSParser] No MBR boot signature on %s.", self._device)
             return -1
 
@@ -420,7 +444,7 @@ class NTFSParser(BaseFSParser):
     def _find_gpt(self) -> int:
         """Parse GPT header + partition array for the first Basic Data partition."""
         try:
-            hdr = self._read_raw(512, 512)   # LBA 1
+            hdr = self._read_raw(512, 512)  # LBA 1
         except OSError as exc:
             _log.warning("[NTFSParser] Cannot read GPT header: %s", exc)
             return -1
@@ -429,9 +453,9 @@ class NTFSParser(BaseFSParser):
             _log.warning("[NTFSParser] GPT signature absent.")
             return -1
 
-        entry_lba   = struct.unpack_from("<Q", hdr, 72)[0]
+        entry_lba = struct.unpack_from("<Q", hdr, 72)[0]
         entry_count = struct.unpack_from("<I", hdr, 80)[0]
-        entry_size  = struct.unpack_from("<I", hdr, 84)[0]  # typically 128
+        entry_size = struct.unpack_from("<I", hdr, 84)[0]  # typically 128
 
         for i in range(min(entry_count, 256)):
             off = entry_lba * 512 + i * entry_size
@@ -444,7 +468,9 @@ class NTFSParser(BaseFSParser):
             if entry[:16] == _GPT_BASIC_DATA_GUID:
                 lba = struct.unpack_from("<Q", entry, 32)[0]
                 offset = int(lba) * 512
-                _log.info("[NTFSParser] GPT: Basic Data partition at LBA %d (offset %d B).", lba, offset)
+                _log.info(
+                    "[NTFSParser] GPT: Basic Data partition at LBA %d (offset %d B).", lba, offset
+                )
                 return offset
 
         _log.warning("[NTFSParser] No Basic Data partition found in GPT.")
@@ -463,25 +489,31 @@ class NTFSParser(BaseFSParser):
         if len(data) < 512 or data[3:11] != b"NTFS    ":
             _log.warning(
                 "[NTFSParser] Not NTFS at offset %d (OEM=%r).",
-                partition_offset, data[3:11] if len(data) >= 11 else b"?",
+                partition_offset,
+                data[3:11] if len(data) >= 11 else b"?",
             )
             return None
 
-        bps  = struct.unpack_from("<H", data, 0x0B)[0]   # bytes per sector
-        spc  = data[0x0D]                                  # sectors per cluster
+        bps = struct.unpack_from("<H", data, 0x0B)[0]  # bytes per sector
+        spc = data[0x0D]  # sectors per cluster
         if bps == 0 or spc == 0:
             _log.warning("[NTFSParser] Invalid BPB (BPS=%d, SPC=%d).", bps, spc)
             return None
 
-        total_sectors    = struct.unpack_from("<Q", data, 0x28)[0]
-        mft_start_clus   = struct.unpack_from("<Q", data, 0x30)[0]
-        cluster_size     = bps * spc
-        mft_start_byte   = partition_offset + mft_start_clus * cluster_size
+        total_sectors = struct.unpack_from("<Q", data, 0x28)[0]
+        mft_start_clus = struct.unpack_from("<Q", data, 0x30)[0]
+        cluster_size = bps * spc
+        mft_start_byte = partition_offset + mft_start_clus * cluster_size
 
         _log.info(
             "[NTFSParser] BPB OK — BPS=%d, SPC=%d, cluster=%d B, "
             "MFT @ cluster %d = byte %d, total_sectors=%d.",
-            bps, spc, cluster_size, mft_start_clus, mft_start_byte, total_sectors,
+            bps,
+            spc,
+            cluster_size,
+            mft_start_clus,
+            mft_start_byte,
+            total_sectors,
         )
         return BootSector(
             bytes_per_sector=bps,
@@ -527,7 +559,9 @@ class NTFSParser(BaseFSParser):
 
         # Heuristic: ~1 MFT record per 1 KB of total disk
         heuristic = (boot.total_sectors * boot.bytes_per_sector) // (1024 * 1024)
-        _log.warning("[NTFSParser] Could not read $MFT DATA size — heuristic: %d entries.", heuristic)
+        _log.warning(
+            "[NTFSParser] Could not read $MFT DATA size — heuristic: %d entries.", heuristic
+        )
         return heuristic
 
     def _parse_entry(self, index: int, raw: bytes) -> _MFTEntry | None:
@@ -540,14 +574,14 @@ class NTFSParser(BaseFSParser):
         data = bytearray(raw)
         _apply_fixups(data)
 
-        flags      = struct.unpack_from("<H", data, 0x16)[0]
+        flags = struct.unpack_from("<H", data, 0x16)[0]
         is_deleted = not (flags & _FLAG_IN_USE)
         first_attr = struct.unpack_from("<H", data, 0x14)[0]
 
-        name         = ""
+        name = ""
         parent_index = _IDX_ROOT
-        size_bytes   = 0
-        created:  datetime | None = None
+        size_bytes = 0
+        created: datetime | None = None
         modified: datetime | None = None
         data_runs: list[DataRun] = []
         resident_data: bytes | None = None
@@ -561,8 +595,8 @@ class NTFSParser(BaseFSParser):
             if alen < 8 or pos + alen > _MFT_ENTRY_SIZE:
                 break
 
-            non_res  = data[pos + 8]
-            attr     = bytes(data[pos:pos + alen])
+            non_res = data[pos + 8]
+            attr = bytes(data[pos : pos + alen])
 
             # ── 0x10 Standard Information ──────────────────────────────
             if atype == _ATTR_STANDARD_INFO and not non_res:
@@ -570,7 +604,7 @@ class NTFSParser(BaseFSParser):
                 vlen = struct.unpack_from("<I", attr, 0x10)[0]
                 if vlen >= 32 and voff + 16 <= len(attr):
                     val = attr[voff:]
-                    created  = _filetime_to_dt(struct.unpack_from("<Q", val, 0)[0])
+                    created = _filetime_to_dt(struct.unpack_from("<Q", val, 0)[0])
                     modified = _filetime_to_dt(struct.unpack_from("<Q", val, 8)[0])
 
             # ── 0x30 File Name ─────────────────────────────────────────
@@ -578,12 +612,12 @@ class NTFSParser(BaseFSParser):
                 voff = struct.unpack_from("<H", attr, 0x14)[0]
                 vlen = struct.unpack_from("<I", attr, 0x10)[0]
                 if vlen >= 66 and voff + vlen <= len(attr):
-                    val       = attr[voff:]
-                    parent_ref   = struct.unpack_from("<Q", val, 0)[0]
+                    val = attr[voff:]
+                    parent_ref = struct.unpack_from("<Q", val, 0)[0]
                     parent_index = parent_ref & 0x0000_FFFF_FFFF_FFFF
-                    namespace    = val[0x41] if len(val) > 0x41 else 0
-                    fname_len    = val[0x40] if len(val) > 0x40 else 0
-                    fname_bytes  = val[0x42:0x42 + fname_len * 2]
+                    namespace = val[0x41] if len(val) > 0x41 else 0
+                    fname_len = val[0x40] if len(val) > 0x40 else 0
+                    fname_bytes = val[0x42 : 0x42 + fname_len * 2]
                     try:
                         candidate = fname_bytes.decode("utf-16-le", errors="replace")
                         # Prefer Win32 (1) or Win32&DOS (3) over DOS-only (2) or POSIX (0)
@@ -600,13 +634,13 @@ class NTFSParser(BaseFSParser):
                     actual_sz = struct.unpack_from("<Q", attr, 0x30)[0]
                     if actual_sz:
                         size_bytes = actual_sz
-                    run_off  = struct.unpack_from("<H", attr, 0x20)[0]
+                    run_off = struct.unpack_from("<H", attr, 0x20)[0]
                     data_runs = _decode_data_runs(attr[run_off:])
                 else:
                     voff = struct.unpack_from("<H", attr, 0x14)[0]
                     vlen = struct.unpack_from("<I", attr, 0x10)[0]
-                    resident_data = attr[voff:voff + vlen]
-                    size_bytes    = vlen
+                    resident_data = attr[voff : voff + vlen]
+                    size_bytes = vlen
 
             pos += alen
 
@@ -651,6 +685,7 @@ class NTFSParser(BaseFSParser):
 
 # ── Module-level helpers ───────────────────────────────────────────────────────
 
+
 def _apply_fixups(data: bytearray) -> bool:
     """
     Apply the NTFS Update Sequence Array (USA) to restore the last 2 bytes of
@@ -659,24 +694,25 @@ def _apply_fixups(data: bytearray) -> bool:
     """
     if len(data) < 8:
         return False
-    usa_off  = struct.unpack_from("<H", data, 4)[0]
+    usa_off = struct.unpack_from("<H", data, 4)[0]
     usa_size = struct.unpack_from("<H", data, 6)[0]
     if usa_off + usa_size * 2 > len(data):
         return False
-    sig = data[usa_off:usa_off + 2]
-    ok  = True
+    sig = data[usa_off : usa_off + 2]
+    ok = True
     for i in range(1, usa_size):
         sector_end = i * 512 - 2
         if sector_end + 2 > len(data):
             break
-        if data[sector_end:sector_end + 2] != sig:
-            ok = False          # mismatch — log at caller if needed
-        orig = data[usa_off + i * 2:usa_off + i * 2 + 2]
-        data[sector_end:sector_end + 2] = orig
+        if data[sector_end : sector_end + 2] != sig:
+            ok = False  # mismatch — log at caller if needed
+        orig = data[usa_off + i * 2 : usa_off + i * 2 + 2]
+        data[sector_end : sector_end + 2] = orig
     return ok
 
 
 # ── FAT32Parser ────────────────────────────────────────────────────────────────
+
 
 class FAT32Parser(BaseFSParser):
     """
@@ -694,23 +730,23 @@ class FAT32Parser(BaseFSParser):
     name = "FAT32"
 
     # Directory entry attribute flags
-    _ATTR_LFN       = 0x0F
-    _ATTR_DIR       = 0x10
-    _ATTR_ARCHIVE   = 0x20
+    _ATTR_LFN = 0x0F
+    _ATTR_DIR = 0x10
+    _ATTR_ARCHIVE = 0x20
 
     # Special first-byte values
-    _ENTRY_DELETED  = 0xE5
-    _ENTRY_END      = 0x00
+    _ENTRY_DELETED = 0xE5
+    _ENTRY_END = 0x00
 
     def __init__(self, raw_device: str, fd: int) -> None:
         super().__init__(raw_device, fd)
         # Parsed BPB fields (set by probe())
         self._bytes_per_sector: int = 0
-        self._cluster_size:     int = 0
-        self._fat_start:        int = 0
-        self._data_start:       int = 0
-        self._root_cluster:     int = 0
-        self._ready:            bool = False
+        self._cluster_size: int = 0
+        self._fat_start: int = 0
+        self._data_start: int = 0
+        self._root_cluster: int = 0
+        self._ready: bool = False
 
     # ── BaseFSParser contract ─────────────────────────────────────────────────
 
@@ -756,37 +792,42 @@ class FAT32Parser(BaseFSParser):
         # Filesystem type string is at bytes 82-89 ("FAT32   ")
         fs_type = data[0x52:0x5A]
         if fs_type != b"FAT32   ":
-            _log.debug(
-                "[FAT32Parser] Not FAT32 (type string=%r).", fs_type
-            )
+            _log.debug("[FAT32Parser] Not FAT32 (type string=%r).", fs_type)
             return False
 
-        bps = struct.unpack_from("<H", data, 0x0B)[0]   # bytes per sector
-        spc = data[0x0D]                                  # sectors per cluster
+        bps = struct.unpack_from("<H", data, 0x0B)[0]  # bytes per sector
+        spc = data[0x0D]  # sectors per cluster
         reserved = struct.unpack_from("<H", data, 0x0E)[0]
-        num_fats  = data[0x10]
-        spf32    = struct.unpack_from("<I", data, 0x24)[0]  # sectors per FAT (FAT32)
+        num_fats = data[0x10]
+        spf32 = struct.unpack_from("<I", data, 0x24)[0]  # sectors per FAT (FAT32)
         root_clus = struct.unpack_from("<I", data, 0x2C)[0]
 
         if bps == 0 or spc == 0 or num_fats == 0 or spf32 == 0:
             _log.debug(
                 "[FAT32Parser] Invalid BPB fields (BPS=%d SPC=%d FATs=%d SPF=%d).",
-                bps, spc, num_fats, spf32,
+                bps,
+                spc,
+                num_fats,
+                spf32,
             )
             return False
 
         self._bytes_per_sector = bps
-        self._cluster_size     = bps * spc
-        self._fat_start        = reserved * bps
-        self._data_start       = (reserved + num_fats * spf32) * bps
-        self._root_cluster     = root_clus
-        self._ready            = True
+        self._cluster_size = bps * spc
+        self._fat_start = reserved * bps
+        self._data_start = (reserved + num_fats * spf32) * bps
+        self._root_cluster = root_clus
+        self._ready = True
 
         _log.info(
             "[FAT32Parser] BPB OK — BPS=%d, SPC=%d, cluster=%d B, "
             "FAT@%d, data@%d, root_cluster=%d.",
-            bps, spc, self._cluster_size,
-            self._fat_start, self._data_start, root_clus,
+            bps,
+            spc,
+            self._cluster_size,
+            self._fat_start,
+            self._data_start,
+            root_clus,
         )
         return True
 
@@ -823,7 +864,7 @@ class FAT32Parser(BaseFSParser):
             seen.add(cur)
             chain.append(cur)
             cur = self._next_cluster(cur)
-            if len(chain) > 65_536:      # safety cap for enormous chains
+            if len(chain) > 65_536:  # safety cap for enormous chains
                 break
         return chain
 
@@ -848,8 +889,8 @@ class FAT32Parser(BaseFSParser):
         visited.add(cluster)
 
         chain = self._collect_chain(cluster)
-        lfn_fragments: list[tuple[int, str]] = []   # (seq, chars)
-        subdirs: list[tuple[int, str]] = []          # (cluster, path)
+        lfn_fragments: list[tuple[int, str]] = []  # (seq, chars)
+        subdirs: list[tuple[int, str]] = []  # (cluster, path)
         count = 0
 
         for clus in chain:
@@ -866,12 +907,12 @@ class FAT32Parser(BaseFSParser):
             for i in range(num_entries):
                 if stop_flag():
                     return count
-                entry = raw[i * 32:(i + 1) * 32]
+                entry = raw[i * 32 : (i + 1) * 32]
                 if len(entry) < 32:
                     break
 
                 first_byte = entry[0]
-                attr       = entry[0x0B]
+                attr = entry[0x0B]
 
                 # End-of-directory marker
                 if first_byte == self._ENTRY_END:
@@ -879,9 +920,9 @@ class FAT32Parser(BaseFSParser):
 
                 # LFN entry — accumulate fragments
                 if attr == self._ATTR_LFN:
-                    seq_raw = entry[0x00] & 0x1F   # mask off the "last" flag (0x40)
+                    seq_raw = entry[0x00] & 0x1F  # mask off the "last" flag (0x40)
                     chars = (
-                        entry[0x01:0x0B]   # chars 1-5
+                        entry[0x01:0x0B]  # chars 1-5
                         + entry[0x0E:0x1A]  # chars 6-11
                         + entry[0x1C:0x1E]  # chars 12-13
                     )
@@ -912,7 +953,7 @@ class FAT32Parser(BaseFSParser):
                 if name is None:
                     # Fall back to 8.3 short name
                     raw_stem = entry[0x00:0x08]
-                    raw_ext  = entry[0x08:0x0B]
+                    raw_ext = entry[0x08:0x0B]
                     # Fix deleted-entry first byte
                     if is_deleted and raw_stem[0:1] == b"\xe5":
                         raw_stem = b"_" + raw_stem[1:]
@@ -925,8 +966,8 @@ class FAT32Parser(BaseFSParser):
                     continue
 
                 # Starting cluster (high 16 in 0x14, low 16 in 0x1A)
-                hi  = struct.unpack_from("<H", entry, 0x14)[0]
-                lo  = struct.unpack_from("<H", entry, 0x1A)[0]
+                hi = struct.unpack_from("<H", entry, 0x14)[0]
+                lo = struct.unpack_from("<H", entry, 0x1A)[0]
                 start_cluster = (hi << 16) | lo
 
                 # Directory — recurse later (avoid deep recursion in large trees)
@@ -941,21 +982,21 @@ class FAT32Parser(BaseFSParser):
                 byte_offset = self._cluster_offset(start_cluster) if start_cluster >= 2 else 0
 
                 dot = name.rfind(".")
-                ftype = name[dot + 1:].upper() if 0 < dot < len(name) - 1 else "UNKNOWN"
+                ftype = name[dot + 1 :].upper() if 0 < dot < len(name) - 1 else "UNKNOWN"
 
                 mft_path = path_prefix + name
                 integrity = 70 if is_deleted else 85
 
                 file_info: dict = {
-                    "name":      name,
-                    "type":      ftype,
-                    "offset":    byte_offset,
-                    "size_kb":   max(1, file_size // 1024),
-                    "device":    self._device,
+                    "name": name,
+                    "type": ftype,
+                    "offset": byte_offset,
+                    "size_kb": max(1, file_size // 1024),
+                    "device": self._device,
                     "integrity": integrity,
-                    "mft_path":  mft_path,
-                    "source":    "fat32",
-                    "fs":        "FAT32",
+                    "mft_path": mft_path,
+                    "source": "fat32",
+                    "fs": "FAT32",
                     "data_runs": [(byte_offset, file_size)] if byte_offset > 0 else [],
                 }
                 file_found_cb(file_info)
@@ -987,19 +1028,57 @@ class FAT32Parser(BaseFSParser):
 
 # ── ExFATParser ────────────────────────────────────────────────────────────────
 
+
 class ExFATParser(BaseFSParser):
     """
-    Lightweight exFAT detector.  probe() identifies the volume; enumerate_files()
-    intentionally returns 0 and delegates recovery entirely to the FileCarver
-    signature-carving pass.
+    exFAT filesystem parser.
 
-    exFAT boot sector OEM name "EXFAT   " lives at bytes 3-10.
+    probe() validates the OEM signature "EXFAT   " at bytes 3-10.
+    enumerate_files() walks the root Directory Entry Sets, reconstructing
+    long Unicode names from primary File (0x85) + Stream Extension (0xC0) +
+    File Name (0xC1) entries. Deleted entries (bit 7 cleared: 0x05/0x40/0x41)
+    are emitted with reduced integrity. Cluster chains are followed via the
+    FAT, or treated as contiguous when the NoFatChain flag is set.
+
+    Reference: Microsoft exFAT Specification (revision 1.00).
     """
 
     name = "exFAT"
 
+    # Directory entry types — in-use forms
+    _ENTRY_BITMAP = 0x81
+    _ENTRY_UPCASE = 0x82
+    _ENTRY_LABEL = 0x83
+    _ENTRY_FILE = 0x85  # File Directory Entry (primary)
+    _ENTRY_STREAM = 0xC0  # Stream Extension (secondary)
+    _ENTRY_NAME = 0xC1  # File Name (secondary)
+
+    # FileAttributes bits
+    _ATTR_DIRECTORY = 0x10
+
+    # GeneralSecondaryFlags bits
+    _SF_ALLOC_POSSIBLE = 0x01
+    _SF_NO_FAT_CHAIN = 0x02
+
+    # FAT sentinel values
+    _FAT_BAD = 0xFFFFFFF7
+    _FAT_EOC_THRESHOLD = 0xFFFFFFF8
+
+    _MAX_CHAIN = 65_536
+
     def __init__(self, raw_device: str, fd: int) -> None:
         super().__init__(raw_device, fd)
+        # VBR fields populated by _parse_vbr()
+        self._bytes_per_sector: int = 0
+        self._sectors_per_cluster: int = 0
+        self._cluster_size: int = 0
+        self._cluster_heap_offset: int = 0  # bytes
+        self._cluster_count: int = 0
+        self._fat_offset: int = 0  # bytes
+        self._fat_length: int = 0  # bytes
+        self._first_cluster_root: int = 0
+        self._number_of_fats: int = 0
+        self._vbr_ready: bool = False
 
     # ── BaseFSParser contract ─────────────────────────────────────────────────
 
@@ -1009,8 +1088,7 @@ class ExFATParser(BaseFSParser):
             data = self._read_raw(0, 16)
             if len(data) < 11:
                 return False
-            oem = data[3:11]
-            result = oem == b"EXFAT   "
+            result = data[3:11] == b"EXFAT   "
             if result:
                 _log.info("[ExFATParser] exFAT volume detected on %s.", self._device)
             return result
@@ -1024,15 +1102,307 @@ class ExFATParser(BaseFSParser):
         progress_cb: Callable[[int], None],
         file_found_cb: Callable[[dict], None],
     ) -> int:
-        """
-        exFAT enumeration is not implemented.  The FileCarver carving pass will
-        handle recovery on exFAT volumes.
-        """
+        try:
+            if not self._parse_vbr():
+                _log.info(
+                    "[ExFATParser] VBR not parsable — exFAT enumeration skipped, "
+                    "falling back to carving."
+                )
+                progress_cb(100)
+                return 0
+            if stop_flag():
+                progress_cb(100)
+                return 0
+            visited: set[int] = set()
+            count = self._walk_dir(
+                cluster=self._first_cluster_root,
+                no_fat_chain=False,
+                data_length=None,
+                path_prefix="/",
+                stop_flag=stop_flag,
+                file_found_cb=file_found_cb,
+                visited=visited,
+            )
+            progress_cb(100)
+            _log.info(
+                "[ExFATParser] exFAT enumeration complete: %d files emitted.",
+                count,
+            )
+            return count
+        except Exception as exc:
+            _log.debug("[ExFATParser] enumerate_files raised %s — fallback.", exc)
+            progress_cb(100)
+            return 0
+
+    # ── VBR parsing ───────────────────────────────────────────────────────────
+
+    def _parse_vbr(self) -> bool:
+        """Read and validate the exFAT VBR. Caches geometry on success."""
+        if self._vbr_ready:
+            return True
+        try:
+            data = self._read_raw(0, 512)
+        except OSError:
+            return False
+        if len(data) < 0x70:
+            return False
+        if data[3:11] != b"EXFAT   ":
+            return False
+        fat_offset_sec = struct.unpack_from("<I", data, 0x50)[0]
+        fat_length_sec = struct.unpack_from("<I", data, 0x54)[0]
+        heap_offset_sec = struct.unpack_from("<I", data, 0x58)[0]
+        cluster_count = struct.unpack_from("<I", data, 0x5C)[0]
+        first_cluster_root = struct.unpack_from("<I", data, 0x60)[0]
+        bps_shift = data[0x6C]
+        spc_shift = data[0x6D]
+        num_fats = data[0x6E]
+
+        # Spec ranges: BytesPerSectorShift 9..12, total cluster size <= 32 MiB
+        if bps_shift < 9 or bps_shift > 12:
+            return False
+        if spc_shift > (25 - bps_shift):
+            return False
+        if num_fats not in (1, 2):
+            return False
+        if first_cluster_root < 2:
+            return False
+        if fat_offset_sec == 0 or fat_length_sec == 0 or heap_offset_sec == 0:
+            return False
+        if cluster_count == 0:
+            return False
+
+        bps = 1 << bps_shift
+        cluster_size = bps << spc_shift
+        self._bytes_per_sector = bps
+        self._sectors_per_cluster = 1 << spc_shift
+        self._cluster_size = cluster_size
+        self._fat_offset = fat_offset_sec * bps
+        self._fat_length = fat_length_sec * bps
+        self._cluster_heap_offset = heap_offset_sec * bps
+        self._cluster_count = cluster_count
+        self._first_cluster_root = first_cluster_root
+        self._number_of_fats = num_fats
+        self._vbr_ready = True
+
         _log.info(
-            "[ExFATParser] exFAT détecté — carving direct."
+            "[ExFATParser] VBR OK — BPS=%d cluster=%d B heap@%d root_cluster=%d cluster_count=%d.",
+            bps,
+            cluster_size,
+            self._cluster_heap_offset,
+            first_cluster_root,
+            cluster_count,
         )
-        progress_cb(100)
-        return 0
+        return True
+
+    # ── Cluster chain helpers ─────────────────────────────────────────────────
+
+    def _cluster_offset(self, cluster: int) -> int:
+        """Absolute byte offset of the first byte of *cluster* on the device."""
+        return self._cluster_heap_offset + (cluster - 2) * self._cluster_size
+
+    def _next_cluster(self, cluster: int) -> int:
+        """Read one FAT entry; return next cluster or 0xFFFFFFFF on error/EOC."""
+        try:
+            off = self._fat_offset + cluster * 4
+            raw = self._read_raw(off, 4)
+            if len(raw) < 4:
+                return 0xFFFFFFFF
+            return int(struct.unpack_from("<I", raw, 0)[0])
+        except OSError:
+            return 0xFFFFFFFF
+
+    def _collect_chain(
+        self,
+        start: int,
+        no_fat_chain: bool,
+        data_length: int | None,
+    ) -> list[int]:
+        """Return the ordered list of clusters for a file/directory."""
+        if start < 2 or start > self._cluster_count + 1:
+            return []
+        if no_fat_chain:
+            if data_length is None or data_length <= 0:
+                return [start]
+            n = (data_length + self._cluster_size - 1) // self._cluster_size
+            n = max(1, min(n, self._MAX_CHAIN))
+            return [start + i for i in range(n)]
+        chain: list[int] = []
+        seen: set[int] = set()
+        cur = start
+        while cur >= 2 and cur < self._FAT_EOC_THRESHOLD and cur not in seen:
+            if cur == self._FAT_BAD or cur > self._cluster_count + 1:
+                break
+            seen.add(cur)
+            chain.append(cur)
+            cur = self._next_cluster(cur)
+            if len(chain) > self._MAX_CHAIN:
+                break
+        return chain
+
+    # ── Directory walker ──────────────────────────────────────────────────────
+
+    def _walk_dir(
+        self,
+        cluster: int,
+        no_fat_chain: bool,
+        data_length: int | None,
+        path_prefix: str,
+        stop_flag: Callable[[], bool],
+        file_found_cb: Callable[[dict], None],
+        visited: set[int],
+    ) -> int:
+        if cluster < 2 or cluster in visited:
+            return 0
+        visited.add(cluster)
+        chain = self._collect_chain(cluster, no_fat_chain, data_length)
+        if not chain:
+            return 0
+
+        buf = bytearray()
+        for clus in chain:
+            if stop_flag():
+                return 0
+            try:
+                raw = self._read_raw(self._cluster_offset(clus), self._cluster_size)
+            except OSError:
+                continue
+            buf.extend(raw)
+        if not buf:
+            return 0
+
+        count = 0
+        subdirs: list[tuple[int, bool, int, str]] = []
+        i = 0
+        n = len(buf) // 32
+        while i < n:
+            if stop_flag():
+                return count
+            entry = bytes(buf[i * 32 : (i + 1) * 32])
+            etype = entry[0]
+            if etype == 0x00:
+                # End-of-directory marker (per spec, all subsequent are unused).
+                break
+            if etype not in (self._ENTRY_FILE, 0x05):
+                # Bitmap, UpCase, Label, or other non-file entries — skip.
+                i += 1
+                continue
+
+            is_deleted = etype == 0x05
+            secondary_count = entry[1]
+            if secondary_count < 2 or i + secondary_count >= n:
+                i += 1
+                continue
+
+            file_attributes = struct.unpack_from("<H", entry, 4)[0]
+            is_dir = bool(file_attributes & self._ATTR_DIRECTORY)
+
+            stream = bytes(buf[(i + 1) * 32 : (i + 2) * 32])
+            stype = stream[0]
+            # Stream Extension: 0xC0 in-use, 0x40 deleted
+            if stype not in (self._ENTRY_STREAM, 0x40):
+                i += 1
+                continue
+            flags = stream[1]
+            name_length = stream[3]
+            first_cluster = struct.unpack_from("<I", stream, 0x14)[0]
+            file_size = struct.unpack_from("<Q", stream, 0x18)[0]
+            no_fat = bool(flags & self._SF_NO_FAT_CHAIN)
+
+            # Concatenate (secondary_count - 1) File Name entries (0xC1 / 0x41)
+            name_chars = bytearray()
+            ok = True
+            for k in range(secondary_count - 1):
+                idx = i + 2 + k
+                if idx >= n:
+                    ok = False
+                    break
+                ne = bytes(buf[idx * 32 : (idx + 1) * 32])
+                nt = ne[0]
+                if nt not in (self._ENTRY_NAME, 0x41):
+                    ok = False
+                    break
+                name_chars.extend(ne[2:32])
+            advance = 1 + secondary_count
+            if not ok:
+                i += advance
+                continue
+
+            try:
+                decoded = name_chars.decode("utf-16-le", errors="replace")
+            except Exception:
+                decoded = ""
+            if name_length and name_length <= len(decoded):
+                decoded = decoded[:name_length]
+            name = decoded.rstrip("\x00").strip()
+
+            i += advance
+
+            if not name or name in (".", ".."):
+                continue
+
+            if is_dir:
+                if first_cluster >= 2 and first_cluster not in visited:
+                    child_path = path_prefix.rstrip("/") + "/" + name + "/"
+                    subdirs.append((first_cluster, no_fat, file_size, child_path))
+                continue
+
+            byte_offset = self._cluster_offset(first_cluster) if first_cluster >= 2 else 0
+            dot = name.rfind(".")
+            ftype = name[dot + 1 :].upper() if 0 < dot < len(name) - 1 else "UNKNOWN"
+            integrity = 60 if is_deleted else 85
+
+            data_runs: list[tuple[int, int]] = []
+            if byte_offset > 0 and file_size > 0:
+                file_chain = self._collect_chain(first_cluster, no_fat, file_size)
+                if file_chain:
+                    run_start = self._cluster_offset(file_chain[0])
+                    run_len = self._cluster_size
+                    from itertools import pairwise
+
+                    for prev, nxt in pairwise(file_chain):
+                        if nxt == prev + 1:
+                            run_len += self._cluster_size
+                        else:
+                            data_runs.append((run_start, run_len))
+                            run_start = self._cluster_offset(nxt)
+                            run_len = self._cluster_size
+                    data_runs.append((run_start, run_len))
+                    total = sum(length for _, length in data_runs)
+                    if total > file_size and data_runs:
+                        excess = total - file_size
+                        s, length = data_runs[-1]
+                        data_runs[-1] = (s, max(0, length - excess))
+
+            file_info: dict = {
+                "name": name,
+                "type": ftype,
+                "offset": byte_offset,
+                "size_kb": max(1, file_size // 1024),
+                "device": self._device,
+                "integrity": integrity,
+                "mft_path": path_prefix + name,
+                "source": "exfat",
+                "fs": "exFAT",
+                "data_runs": data_runs,
+            }
+            if is_deleted:
+                file_info["deleted"] = True
+            file_found_cb(file_info)
+            count += 1
+
+        for sub_cluster, sub_no_fat, sub_size, sub_path in subdirs:
+            if stop_flag():
+                break
+            count += self._walk_dir(
+                cluster=sub_cluster,
+                no_fat_chain=sub_no_fat,
+                data_length=sub_size if sub_no_fat else None,
+                path_prefix=sub_path,
+                stop_flag=stop_flag,
+                file_found_cb=file_found_cb,
+                visited=visited,
+            )
+        return count
 
     # ── Low-level I/O ──────────────────────────────────────────────────────────
 
@@ -1051,6 +1421,7 @@ class ExFATParser(BaseFSParser):
 
 
 # ── Ext4Parser ────────────────────────────────────────────────────────────────
+
 
 class Ext4Parser(BaseFSParser):
     """
@@ -1078,7 +1449,7 @@ class Ext4Parser(BaseFSParser):
         self._inode_size: int = 0
         self._blocks_per_group: int = 0
         self._first_data_block: int = 0
-        self._desc_size: int = 0   # group descriptor size (32 or 64)
+        self._desc_size: int = 0  # group descriptor size (32 or 64)
         self._ready: bool = False
 
     # ── BaseFSParser contract ─────────────────────────────────────────────────
@@ -1116,7 +1487,7 @@ class Ext4Parser(BaseFSParser):
         if len(data) < self._SB_OFFSET + 4:
             return False
 
-        sb = data[self._SB_OFFSET:]
+        sb = data[self._SB_OFFSET :]
         if len(sb) < 0x100:
             return False
 
@@ -1168,7 +1539,10 @@ class Ext4Parser(BaseFSParser):
         _log.info(
             "[Ext4Parser] ext4 superblock OK — block_size=%d, inode_size=%d, "
             "inodes_per_group=%d, first_data_block=%d.",
-            block_size, inode_size, inodes_per_group, first_data_block,
+            block_size,
+            inode_size,
+            inodes_per_group,
+            first_data_block,
         )
         return True
 
@@ -1279,7 +1653,7 @@ class Ext4Parser(BaseFSParser):
             file_type = raw[pos + 7]
             if inode != 0 and name_len > 0 and pos + 8 + name_len <= len(raw):
                 try:
-                    name = raw[pos + 8:pos + 8 + name_len].decode("utf-8", errors="replace")
+                    name = raw[pos + 8 : pos + 8 + name_len].decode("utf-8", errors="replace")
                 except Exception:
                     name = f"_file_{inode}"
                 entries.append((inode, file_type, name))
@@ -1317,12 +1691,12 @@ class Ext4Parser(BaseFSParser):
             else:
                 block_runs = self._block_pointers(inode_data)
 
-            for (byte_off, byte_len) in block_runs:
+            for byte_off, byte_len in block_runs:
                 if stop_flag():
                     return count
                 block_num = byte_off // self._block_size
                 entries = self._read_dir_block(block_num)
-                for (entry_inode, file_type, name) in entries:
+                for entry_inode, file_type, name in entries:
                     if stop_flag():
                         return count
                     if name in (".", "..") or entry_inode < 11:
@@ -1348,7 +1722,9 @@ class Ext4Parser(BaseFSParser):
                 return None
 
             i_size_lo = struct.unpack_from("<I", inode_data, 4)[0]
-            i_size_hi = struct.unpack_from("<I", inode_data, 108)[0] if len(inode_data) >= 112 else 0
+            i_size_hi = (
+                struct.unpack_from("<I", inode_data, 108)[0] if len(inode_data) >= 112 else 0
+            )
             file_size = (i_size_hi << 32) | i_size_lo
 
             i_dtime = struct.unpack_from("<I", inode_data, 20)[0]
@@ -1367,18 +1743,18 @@ class Ext4Parser(BaseFSParser):
             byte_offset = data_runs[0][0] if data_runs else 0
 
             dot = name.rfind(".")
-            ftype = name[dot + 1:].upper() if 0 < dot < len(name) - 1 else "UNKNOWN"
+            ftype = name[dot + 1 :].upper() if 0 < dot < len(name) - 1 else "UNKNOWN"
 
             return {
-                "name":      name,
-                "type":      ftype,
-                "offset":    byte_offset,
-                "size_kb":   max(1, file_size // 1024),
-                "device":    self._device,
+                "name": name,
+                "type": ftype,
+                "offset": byte_offset,
+                "size_kb": max(1, file_size // 1024),
+                "device": self._device,
                 "integrity": integrity,
-                "mft_path":  path,
-                "source":    "ext4",
-                "fs":        "ext4",
+                "mft_path": path,
+                "source": "ext4",
+                "fs": "ext4",
                 "data_runs": data_runs,
             }
         except Exception as exc:
@@ -1403,6 +1779,7 @@ class Ext4Parser(BaseFSParser):
 
 # ── HFSPlusParser ─────────────────────────────────────────────────────────────
 
+
 class HFSPlusParser(BaseFSParser):
     """
     HFS+ (Mac OS Extended) filesystem parser.
@@ -1416,10 +1793,10 @@ class HFSPlusParser(BaseFSParser):
 
     name = "HFS+"
 
-    _VH_OFFSET = 1024    # Volume Header at byte 1024
-    _HFSPLUS_SIG = 0x482B   # "H+"
-    _HFSX_SIG    = 0x4858   # "HX"
-    _BTREE_NODE_SIZE = 512   # default; read from B-tree header
+    _VH_OFFSET = 1024  # Volume Header at byte 1024
+    _HFSPLUS_SIG = 0x482B  # "H+"
+    _HFSX_SIG = 0x4858  # "HX"
+    _BTREE_NODE_SIZE = 512  # default; read from B-tree header
 
     def __init__(self, raw_device: str, fd: int) -> None:
         super().__init__(raw_device, fd)
@@ -1490,9 +1867,10 @@ class HFSPlusParser(BaseFSParser):
         self._vh_data = data  # cache for enumerate_files
 
         _log.info(
-            "[HFSPlusParser] HFS+/HFSX volume detected (sig=0x%04X, "
-            "blockSize=%d, totalBlocks=%d).",
-            sig, block_size, total_blocks,
+            "[HFSPlusParser] HFS+/HFSX volume detected (sig=0x%04X, blockSize=%d, totalBlocks=%d).",
+            sig,
+            block_size,
+            total_blocks,
         )
         return True
 
@@ -1559,7 +1937,7 @@ class HFSPlusParser(BaseFSParser):
 
                 # Node descriptor
                 flink = struct.unpack_from(">I", node_data, 0)[0]
-                kind = struct.unpack_from(">b", node_data, 8)[0]   # signed byte
+                kind = struct.unpack_from(">b", node_data, 8)[0]  # signed byte
                 num_records = struct.unpack_from(">H", node_data, 10)[0]
 
                 if kind != -1:  # not a leaf node
@@ -1603,8 +1981,12 @@ class HFSPlusParser(BaseFSParser):
                         # First extent of dataFork: startBlock at data_offset + 96
                         if data_offset + 104 > len(node_data):
                             continue
-                        first_extent_start = struct.unpack_from(">I", node_data, data_offset + 96)[0]
-                        first_extent_count = struct.unpack_from(">I", node_data, data_offset + 100)[0]
+                        first_extent_start = struct.unpack_from(">I", node_data, data_offset + 96)[
+                            0
+                        ]
+                        first_extent_count = struct.unpack_from(">I", node_data, data_offset + 100)[
+                            0
+                        ]
 
                         byte_offset = first_extent_start * self._block_size
                         byte_length = first_extent_count * self._block_size
@@ -1618,27 +2000,27 @@ class HFSPlusParser(BaseFSParser):
                             name_start = rec_offset + 8
                             if name_start + name_bytes_len <= len(node_data):
                                 try:
-                                    name = node_data[name_start:name_start + name_bytes_len].decode(
-                                        "utf-16-be", errors="replace"
-                                    )
+                                    name = node_data[
+                                        name_start : name_start + name_bytes_len
+                                    ].decode("utf-16-be", errors="replace")
                                 except Exception:
                                     name = "_hfsplus_file"
                             else:
                                 name = "_hfsplus_file"
 
                         dot = name.rfind(".")
-                        ftype = name[dot + 1:].upper() if 0 < dot < len(name) - 1 else "UNKNOWN"
+                        ftype = name[dot + 1 :].upper() if 0 < dot < len(name) - 1 else "UNKNOWN"
 
                         file_info: dict = {
-                            "name":      name,
-                            "type":      ftype,
-                            "offset":    byte_offset,
-                            "size_kb":   max(1, logical_size // 1024),
-                            "device":    self._device,
+                            "name": name,
+                            "type": ftype,
+                            "offset": byte_offset,
+                            "size_kb": max(1, logical_size // 1024),
+                            "device": self._device,
                             "integrity": 85,
-                            "mft_path":  "/" + name,
-                            "source":    "hfs+",
-                            "fs":        "HFS+",
+                            "mft_path": "/" + name,
+                            "source": "hfs+",
+                            "fs": "HFS+",
                             "data_runs": [(byte_offset, byte_length)] if byte_length > 0 else [],
                         }
                         file_found_cb(file_info)
@@ -1672,6 +2054,7 @@ class HFSPlusParser(BaseFSParser):
 
 
 # ── APFSParser ────────────────────────────────────────────────────────────────
+
 
 class APFSParser(BaseFSParser):
     """
@@ -1711,8 +2094,11 @@ class APFSParser(BaseFSParser):
                 _log.debug("[APFSParser] nx_block_size=%d < 4096.", nx_block_size)
                 return False
             self._ready = True
-            _log.info("[APFSParser] APFS container detected on %s (block_size=%d).",
-                      self._device, nx_block_size)
+            _log.info(
+                "[APFSParser] APFS container detected on %s (block_size=%d).",
+                self._device,
+                nx_block_size,
+            )
             return True
         except Exception as exc:
             _log.debug("[APFSParser] probe() raised %s — silent fallback.", exc)
@@ -1729,8 +2115,7 @@ class APFSParser(BaseFSParser):
         The FileCarver carving pass handles recovery on APFS volumes.
         """
         _log.info(
-            "[APFSParser] APFS detected — full enumeration not implemented in v1. "
-            "Using carver."
+            "[APFSParser] APFS detected — full enumeration not implemented in v1. Using carver."
         )
         progress_cb(100)
         return 0
@@ -1756,7 +2141,14 @@ class APFSParser(BaseFSParser):
 # Append new BaseFSParser subclasses (Ext4Parser, ApfsParser, …) here. Order
 # matters only if two parsers could probe() True on the same volume — put the
 # most specific first.
-FS_PARSERS: list[type[BaseFSParser]] = [NTFSParser, FAT32Parser, ExFATParser, Ext4Parser, HFSPlusParser, APFSParser]
+FS_PARSERS: list[type[BaseFSParser]] = [
+    NTFSParser,
+    FAT32Parser,
+    ExFATParser,
+    Ext4Parser,
+    HFSPlusParser,
+    APFSParser,
+]
 
 
 def detect_fs(raw_device: str, fd: int) -> BaseFSParser | None:
