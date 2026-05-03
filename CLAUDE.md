@@ -924,6 +924,78 @@ Track each major implementation milestone here. Keep entries brief: what was add
 - **New files**: `app/core/repair/__init__.py`, `app/core/repair/jpeg_repair.py`, `app/core/repair/mp4_repair.py`, `app/core/platform.py`, `app/cli/__init__.py`, `app/cli/main.py`, `tests/test_fat32_parser.py`, `tests/test_exfat_parser.py`, `tests/test_ext4_parser.py`, `tests/test_hfsplus_parser.py`, `tests/test_apfs_parser.py`, `tests/test_cli.py`, `tests/test_jpeg_repair.py`, `tests/test_mp4_repair.py`.
 - **Modified files**: `app/core/fs_parser.py` (ext4/HFS+/APFS added, registry extended), `app/ui/screen_home.py`, `app/ui/screen_scan.py`, `app/ui/screen_sd_card.py`, `app/ui/screen_results.py` (palette migration).
 
+### Objectif 17 — Pass 2 finitions (exFAT full, APFS v1, RepairDialog UI)
+
+Three follow-up chantiers landed on top of the Pass 1 roadmap merge:
+
+- **Chantier 1 — exFAT enumerate_files (full)**. Replaced the stub-only
+  exFAT path with a real Directory Entry Set walker.
+  - Parses VBR (BPS shift, SPC shift, FAT offset, cluster heap, root cluster).
+  - Walks root cluster chain via FAT (cycle-detected) or contiguous when
+    the `NoFatChain` flag is set.
+  - Decodes File (`0x85`) + Stream Extension (`0xC0`) + File Name (`0xC1`)
+    sets and reconstructs Unicode names spanning multiple `0xC1` entries
+    (>15 chars).
+  - Detects deleted entries via cleared bit 7 (`0x05` / `0x40` / `0x41`),
+    emits with `integrity=60` and `deleted=True`.
+  - Recurses into subdirectories with a visited-set guard.
+  - Coalesces contiguous clusters into single `data_run`s, truncates the
+    trailing run to `file_size`.
+  - Tests: +11 (active short, long Unicode, deleted, subdir recurse,
+    contiguous NoFatChain, FAT-chain fragmented, cycle, stop_flag, invalid
+    VBR fallback, self-ref subdir loop, progress=100). 23 exFAT tests pass.
+- **Chantier 2 — APFS v1 partial parser**. Replaced the stub with informative
+  detection while deferring the Filesystem B-Tree to a future revision.
+  - Full NX Superblock parse: validates magic, block size, block count,
+    populates `nx_omap_oid` + `nx_fs_oid` array (capped at 100 per spec).
+  - APSB discovery: scans the first ~4096 blocks for Volume Superblocks,
+    parses each into `{block, encrypted, volume_name, fs_flags}`.
+  - Encryption detection via bit 0 of `apfs_fs_flags`
+    (`APFS_FS_UNENCRYPTED`); logs encrypted vs unencrypted volumes by name.
+  - Multi-volume aware: every detected volume is logged with its index,
+    name, and encryption state before falling back to the carver.
+  - `enumerate_files` still returns 0 in v1 — the goal of v1 is an honest
+    diagnosis, not a silent delegation.
+  - Tests: +9 (NXSB cache, invalid `max_fs`, single unencrypted, single
+    encrypted, multi-volume, no APSB, progress=100, stop_flag,
+    `file_found_cb` empty). 24 APFS tests pass.
+- **Chantier 5 — RepairDialog UI**. Wired the JPEG/MP4 repair engines into
+  the Outils screen.
+  - New `diagnose_jpeg()` and `diagnose_mp4()`: read-only analysis returning
+    the same `RepairReport` schema with `repaired=False`. Safe to call from
+    the UI thread.
+  - New `app/ui/repair_dialog.py`: Win98-styled `QDialog` with file picker,
+    `Analyser` / `Reparer…` buttons, indeterminate progress bar, and a
+    `_RepairWorker` `QThread` so the repair pass never blocks the UI.
+  - Updated `screen_tools.py`: new "Reparation de fichiers" tool card wired
+    to `_launch_repair → RepairDialog`.
+  - User flow: pick file → diagnose (read-only) → optional save-as prompt
+    before any write.
+  - Tests: +13 (clean file, missing EOI/SOI/empty for JPEG; clean,
+    moov-after-mdat, no-moov, too-small for MP4; no-side-effect on either
+    side; dispatch helper kind detection; module symbol presence;
+    diagnose→repair round trip).
+
+**Test result post-Pass 2**: **349 passed**, 1 pre-existing
+environment-dependent failure (`test_ok_when_dest_is_different_drive` —
+pytest tmpdir on C: collides with the source-drive guard), excludes
+PyQt6-driven tests in `tests/test_product_real_app.py` that hang without a
+running event loop.
+
+**New files**: `app/ui/repair_dialog.py`, `tests/test_repair_diagnose.py`.
+
+**Modified files**: `app/core/fs_parser.py` (ExFATParser + APFSParser
+rewrites), `app/core/repair/jpeg_repair.py` (`diagnose_jpeg` added),
+`app/core/repair/mp4_repair.py` (`diagnose_mp4` added),
+`app/ui/screen_tools.py` (new tool card + `_launch_repair`),
+`tests/test_exfat_parser.py` (+11 tests), `tests/test_apfs_parser.py`
+(+9 tests).
+
+**Out of scope for Pass 2** (not started): multi-platform packaging
+(macOS `.app` bundle, Linux `.desktop` and AppImage, build script). The
+`app/core/platform.py` abstraction is in place; only the PyInstaller specs
+and packaging scripts are missing.
+
 ### Update policy
 
 Append a new section to this changelog **every time a major implementation is finished**. Keep each entry to: what was added, files touched, key architectural decisions validated.
