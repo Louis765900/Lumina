@@ -1,0 +1,133 @@
+name: Build & Test
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+# Cancel an in-flight run when a new commit lands on the same ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            spec: lumina.spec
+            artifact_name: lumina-windows
+            artifact_path: dist/Lumina.exe
+            extras: ".[dev,windows]"
+          - os: macos-latest
+            spec: lumina_macos.spec
+            artifact_name: lumina-macos
+            artifact_path: dist/Lumina.app
+            extras: ".[dev]"
+          - os: ubuntu-latest
+            spec: lumina_linux.spec
+            artifact_name: lumina-linux
+            artifact_path: dist/lumina
+            extras: ".[dev]"
+    runs-on: ${{ matrix.os }}
+    env:
+      QT_QPA_PLATFORM: offscreen   # headless Qt on every runner
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry / git / build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/lumina_scan/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('native/lumina_scan/Cargo.lock', 'native/lumina_scan/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install Linux PyQt6 system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libegl1 libxkbcommon0 libxcb-cursor0 libxcb-icccm4 \
+            libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+            libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 \
+            libxcb-xkb1 libgl1 libdbus-1-3 libfontconfig1
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "${{ matrix.extras }}"
+          pip install pyinstaller
+
+      - name: Lint (ruff) — informational
+        run: ruff check app/ tests/
+        continue-on-error: true
+
+      - name: Format check (ruff) — informational
+        run: ruff format --check app/ tests/
+        continue-on-error: true
+
+      - name: Type check (mypy app/core) — informational
+        run: mypy app/core/
+        continue-on-error: true
+
+      - name: Build Rust scanner (--release)
+        working-directory: native/lumina_scan
+        run: cargo build --release
+
+      - name: Run pytest (full suite)
+        run: pytest --tb=short
+
+      - name: Build with PyInstaller
+        run: pyinstaller ${{ matrix.spec }} --noconfirm --distpath dist
+
+      - name: Sanity-check the artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist/Lumina.exe")) {
+            Write-Error "dist/Lumina.exe missing"
+            exit 1
+          }
+          Get-Item "dist/Lumina.exe" | Select-Object Name, Length
+
+      - name: Sanity-check the artifact (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          test -d dist/Lumina.app || (echo "dist/Lumina.app missing"; exit 1)
+          du -sh dist/Lumina.app
+
+      - name: Sanity-check the artifact (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          test -d dist/lumina || (echo "dist/lumina/ missing"; exit 1)
+          test -f dist/lumina/lumina || (echo "dist/lumina/lumina binary missing"; exit 1)
+          file dist/lumina/lumina
+          du -sh dist/lumina
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_path }}
+          retention-days: 14
+          if-no-files-found: error
