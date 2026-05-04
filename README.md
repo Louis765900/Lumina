@@ -6,6 +6,8 @@
 
 **Récupération de données — interface rétro Windows 98, moteur moderne, multi-plateforme.**
 
+Version actuelle : **v1.1.0**.
+
 Lumina retrouve vos fichiers perdus sur disques durs, SSD, clés USB et cartes SD. Pas de résultats inventés : chaque fichier affiché provient d'une vraie analyse de votre disque.
 
 ---
