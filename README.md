@@ -1,5 +1,9 @@
 # Lumina
 
+[![Build & Test](https://github.com/Louis765900/Lumina/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/Louis765900/Lumina/actions/workflows/build.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
+[![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](#plateformes-supportées)
+
 **Récupération de données — interface rétro Windows 98, moteur moderne, multi-plateforme.**
 
 Lumina retrouve vos fichiers perdus sur disques durs, SSD, clés USB et cartes SD. Pas de résultats inventés : chaque fichier affiché provient d'une vraie analyse de votre disque.
