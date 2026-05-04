@@ -3,10 +3,11 @@ Lumina - Data Recovery v1.0.0
 Point d'entrée : vérification des droits admin + bootstrap Qt.
 """
 
-import ctypes
 import os
 import sys
 import traceback
+
+from app.core.platform import is_admin, request_elevation
 
 
 # ── Gestionnaire d'exception global ─────────────────────────────────────────
@@ -22,22 +23,6 @@ def _global_exception_handler(exc_type, exc_value, exc_tb):
 
 
 sys.excepthook = _global_exception_handler
-
-
-# ── Helpers admin ────────────────────────────────────────────────────────────
-
-def _is_admin() -> bool:
-    try:
-        return bool(ctypes.windll.shell32.IsUserAnAdmin())
-    except Exception:
-        return False
-
-
-def _request_elevation():
-    params = " ".join(f'"{a}"' for a in sys.argv)
-    ctypes.windll.shell32.ShellExecuteW(
-        None, "runas", sys.executable, params, None, 1
-    )
 
 
 # ── Point d'entrée ───────────────────────────────────────────────────────────
@@ -59,8 +44,8 @@ def main():
     except FileNotFoundError:
         app.setStyleSheet("QWidget { background-color: #0D0E1A; color: #FFFFFF; }")
 
-    # Vérification des droits administrateur
-    if not _is_admin():
+    # Vérification des droits administrateur (root sur POSIX)
+    if not is_admin():
         msg = QMessageBox()
         msg.setWindowTitle("Droits insuffisants — Lumina")
         msg.setIcon(QMessageBox.Icon.Warning)
@@ -68,9 +53,10 @@ def main():
             "<b style='font-size:14px;'>Lumina nécessite les droits Administrateur</b>"
         )
         msg.setInformativeText(
-            "La lecture des disques bruts (PhysicalDrive) est une opération "
-            "privilégiée sous Windows.<br><br>"
-            "Cliquez sur <b>Relancer</b> pour obtenir l'invite UAC automatiquement."
+            "La lecture des disques bruts est une opération privilégiée.<br><br>"
+            "Cliquez sur <b>Relancer</b> pour obtenir l'invite UAC (Windows) "
+            "ou la fenêtre d'élévation (macOS) automatiquement. "
+            "Sur Linux, redémarrez via <code>sudo</code>."
         )
         relaunch = msg.addButton("↑  Relancer en Admin", QMessageBox.ButtonRole.AcceptRole)
         msg.addButton("Quitter", QMessageBox.ButtonRole.RejectRole)
@@ -78,7 +64,8 @@ def main():
         msg.exec()
 
         if msg.clickedButton() == relaunch:
-            _request_elevation()
+            params = " ".join(f'"{a}"' for a in sys.argv)
+            request_elevation(params)
         sys.exit(0)
 
     from app.ui.setup_wizard import ensure_setup_complete
