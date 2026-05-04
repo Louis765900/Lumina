@@ -16,6 +16,7 @@ from app.core.dedup import _DedupIndex
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from app.core.i18n import t
+from app.core.platform import to_raw_device as _to_raw_device
 from app.core.recovery import ensure_lumina_log
 from app.core.settings import is_demo_enabled
 
@@ -23,20 +24,6 @@ ensure_lumina_log()
 _log = logging.getLogger("lumina.recovery")
 _NATIVE_UNAVAILABLE_ERROR = "Native engine unavailable for this source."
 _NATIVE_VALIDATION_WINDOW = 4 * 1024 * 1024
-
-
-def _to_raw_device(device: str) -> str:
-    """Convertit un chemin de lecteur (ex: 'C:') en chemin brut Windows."""
-    dev = device.strip()
-    if not dev:
-        raise ValueError("Chemin de périphérique vide")
-    if dev.startswith("\\\\.\\") or dev.startswith("\\\\?\\"):
-        return dev
-    if len(dev) >= 2 and dev[1] == ":":
-        return f"\\\\.\\{dev[0].upper()}:"
-    if dev.startswith("\\\\"):
-        return dev
-    raise ValueError(f"Chemin invalide : {dev!r}")
 
 
 def _is_local_image_source(device: str) -> bool:
