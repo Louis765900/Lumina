@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Lumina
+GenericName=Data Recovery
+Comment=Recover deleted and lost files from disks and disk images
+Exec=lumina
+Icon=lumina
+Terminal=false
+Categories=Utility;System;Archiving;
+Keywords=recovery;undelete;forensic;carving;ntfs;fat32;exfat;ext4;
+StartupNotify=true
+StartupWMClass=Lumina
