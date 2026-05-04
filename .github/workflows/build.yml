@@ -20,23 +20,17 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            spec: lumina.spec
             artifact_name: lumina-windows
             artifact_path: dist/Lumina.exe
-            extras: ".[dev,windows]"
           - os: macos-latest
-            spec: lumina_macos.spec
             artifact_name: lumina-macos
             artifact_path: dist/Lumina.app
-            extras: ".[dev]"
           - os: ubuntu-latest
-            spec: lumina_linux.spec
             artifact_name: lumina-linux
             artifact_path: dist/lumina
-            extras: ".[dev]"
     runs-on: ${{ matrix.os }}
     env:
-      QT_QPA_PLATFORM: offscreen   # headless Qt on every runner
+      QT_QPA_PLATFORM: offscreen
 
     steps:
       - name: Checkout
@@ -47,6 +41,9 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            pyproject.toml
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -75,30 +72,18 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e "${{ matrix.extras }}"
-          pip install pyinstaller
-
-      - name: Lint (ruff) — informational
-        run: ruff check app/ tests/
-        continue-on-error: true
-
-      - name: Format check (ruff) — informational
-        run: ruff format --check app/ tests/
-        continue-on-error: true
-
-      - name: Type check (mypy app/core) — informational
-        run: mypy app/core/
-        continue-on-error: true
+          pip install -r requirements.txt
+          pip install pyinstaller pytest pytest-cov
 
       - name: Build Rust scanner (--release)
         working-directory: native/lumina_scan
         run: cargo build --release
 
       - name: Run pytest (full suite)
-        run: pytest --tb=short
+        run: pytest tests/ --tb=short
 
       - name: Build with PyInstaller
-        run: pyinstaller ${{ matrix.spec }} --noconfirm --distpath dist
+        run: python scripts/build.py
 
       - name: Sanity-check the artifact (Windows)
         if: runner.os == 'Windows'
