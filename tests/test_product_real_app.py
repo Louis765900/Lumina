@@ -323,7 +323,7 @@ def test_recovery_destination_is_created_and_valid(tmp_path):
 
 
 def test_recovery_blocks_same_logical_source_drive(tmp_path):
-    drive = Path.cwd().drive
+    drive = tmp_path.drive
     if not drive:
         pytest.skip("drive-letter check is Windows-specific")
     dest = tmp_path / "recovered"
