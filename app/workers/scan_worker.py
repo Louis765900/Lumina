@@ -12,9 +12,9 @@ import threading
 import time
 from pathlib import Path
 
-from app.core.dedup import _DedupIndex
 from PyQt6.QtCore import QThread, pyqtSignal
 
+from app.core.dedup import _DedupIndex
 from app.core.i18n import t
 from app.core.platform import to_raw_device as _to_raw_device
 from app.core.recovery import ensure_lumina_log
@@ -51,22 +51,24 @@ class ScanWorker(QThread):
         error(str)              — erreur irrécupérable
     """
 
-    progress          = pyqtSignal(int)
-    status_text       = pyqtSignal(str)
+    progress = pyqtSignal(int)
+    status_text = pyqtSignal(str)
     files_batch_found = pyqtSignal(list)
-    finished          = pyqtSignal(list)
-    error             = pyqtSignal(str)
+    finished = pyqtSignal(list)
+    error = pyqtSignal(str)
 
     # Demo data is loaded lazily to keep demo code out of the production bundle.
     # Access via self._sim_files / self._phases in _run_simulation() only.
     @property
     def _sim_files(self):  # type: ignore[override]
         from app.workers._demo import SIM_FILES
+
         return SIM_FILES
 
     @property
     def _phases(self):  # type: ignore[override]
         from app.workers._demo import PHASES
+
         return PHASES
 
     def __init__(
@@ -79,10 +81,10 @@ class ScanWorker(QThread):
         super().__init__(parent)
         if simulate and not is_demo_enabled():
             raise ValueError(t("scan.demo_disabled"))
-        self._disk            = disk
-        self._simulate        = simulate
-        self._stop_requested  = False
-        self._pause_event     = threading.Event()
+        self._disk = disk
+        self._simulate = simulate
+        self._stop_requested = False
+        self._pause_event = threading.Event()
         self._pause_event.set()
         self._found_files: list[dict] = list(preloaded_files) if preloaded_files else []
         self._lock = threading.Lock()
@@ -91,7 +93,7 @@ class ScanWorker(QThread):
 
     def stop(self):
         self._stop_requested = True
-        self._pause_event.set()   # débloquer si en pause pour permettre la sortie
+        self._pause_event.set()  # débloquer si en pause pour permettre la sortie
 
     def pause(self):
         self._pause_event.clear()
@@ -130,7 +132,7 @@ class ScanWorker(QThread):
         if not is_demo_enabled():
             raise RuntimeError(t("scan.demo_disabled"))
 
-        device  = self._disk.get("device", "Disque")
+        device = self._disk.get("device", "Disque")
         size_gb = self._disk.get("size_gb", 0)
 
         self.status_text.emit(f"Initialisation du scan sur {device} ({size_gb} Go)…")
@@ -155,8 +157,7 @@ class ScanWorker(QThread):
                     used_names = {f["name"] for f in self._found_files}
 
                 available = [
-                    (n, e, s, q) for n, e, s, q in self._sim_files
-                    if f"{n}{e}" not in used_names
+                    (n, e, s, q) for n, e, s, q in self._sim_files if f"{n}{e}" not in used_names
                 ]
                 to_add = available[: random.randint(1, 3)]
                 batch = []
@@ -166,11 +167,11 @@ class ScanWorker(QThread):
                     if self._stop_requested:
                         return
                     info = {
-                        "name":      f"{name}{ext}",
-                        "type":      ext.upper().lstrip("."),
-                        "offset":    random.randint(0, 500_000_000),
-                        "size_kb":   size_kb,
-                        "device":    device,
+                        "name": f"{name}{ext}",
+                        "type": ext.upper().lstrip("."),
+                        "offset": random.randint(0, 500_000_000),
+                        "size_kb": size_kb,
+                        "device": device,
                         "integrity": integrity,
                         "simulated": True,
                     }
@@ -198,11 +199,11 @@ class ScanWorker(QThread):
                 pct = min(97, pct + 1)
                 self.progress.emit(pct)
                 info = {
-                    "name":      fname,
-                    "type":      ext.upper().lstrip("."),
-                    "offset":    random.randint(0, 500_000_000),
-                    "size_kb":   size_kb,
-                    "device":    device,
+                    "name": fname,
+                    "type": ext.upper().lstrip("."),
+                    "offset": random.randint(0, 500_000_000),
+                    "size_kb": size_kb,
+                    "device": device,
                     "integrity": integrity,
                     "simulated": True,
                 }
@@ -217,11 +218,12 @@ class ScanWorker(QThread):
         self.progress.emit(100)
         self.msleep(300)
 
-    _CHECKPOINT_INTERVAL = 60.0   # seconds between auto-saves during carving
+    _CHECKPOINT_INTERVAL = 60.0  # seconds between auto-saves during carving
 
     def _save_checkpoint(self) -> None:
         """Persist current results to logs/scan_checkpoint.json (crash recovery)."""
         import json as _json
+
         try:
             log_dir = Path("logs")
             log_dir.mkdir(exist_ok=True)
@@ -253,7 +255,7 @@ class ScanWorker(QThread):
         pct_scale: int,
     ) -> None:
         local_batch: list[dict] = []
-        last_emit      = time.monotonic()
+        last_emit = time.monotonic()
         last_checkpoint = time.monotonic()
 
         def _on_progress(pct: int) -> None:
@@ -406,9 +408,7 @@ class ScanWorker(QThread):
 
                 if parser is not None:
                     fs_name = parser.name
-                    self.status_text.emit(
-                        f"Analyse {fs_name} — récupération des noms d'origine…"
-                    )
+                    self.status_text.emit(f"Analyse {fs_name} — récupération des noms d'origine…")
 
                     def _fs_progress(pct: int) -> None:
                         self._pause_event.wait()
@@ -457,9 +457,7 @@ class ScanWorker(QThread):
                 raw_dev,
                 exc,
             )
-            self.status_text.emit(
-                "Périphérique illisible — analyse par signature directe."
-            )
+            self.status_text.emit("Périphérique illisible — analyse par signature directe.")
 
         return dedup_index, fs_ok, fs_name, count
 
@@ -539,13 +537,14 @@ class ScanWorker(QThread):
         if fs_ok:
             _log.info(
                 "[ScanWorker] Dédup actif : %d intervalle(s) indexé(s) depuis %s.",
-                len(dedup_index), fs_name,
+                len(dedup_index),
+                fs_name,
             )
 
         # Phase 1 always occupies 0-20% of the visual bar, whether it succeeded
         # or not. If we reset pct_base to 0 when fs_ok=False the bar visibly
         # jumps backward; keeping it at 20 gives a monotonically increasing bar.
-        pct_base  = 20
+        pct_base = 20
         pct_scale = 80
 
         from app.core.file_carver import FileCarver

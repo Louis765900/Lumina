@@ -9,8 +9,8 @@ import traceback
 
 from app.core.platform import is_admin, request_elevation
 
-
 # ── Gestionnaire d'exception global ─────────────────────────────────────────
+
 
 def _global_exception_handler(exc_type, exc_value, exc_tb):
     try:
@@ -27,6 +27,7 @@ sys.excepthook = _global_exception_handler
 
 # ── Point d'entrée ───────────────────────────────────────────────────────────
 
+
 def main():
     from PyQt6.QtWidgets import QApplication, QMessageBox
 
@@ -39,7 +40,7 @@ def main():
     # Charger la feuille de style
     qss_path = os.path.join(os.path.dirname(__file__), "app", "ui", "styles.qss")
     try:
-        with open(qss_path, "r", encoding="utf-8") as f:
+        with open(qss_path, encoding="utf-8") as f:
             app.setStyleSheet(f.read())
     except FileNotFoundError:
         app.setStyleSheet("QWidget { background-color: #0D0E1A; color: #FFFFFF; }")
@@ -49,9 +50,7 @@ def main():
         msg = QMessageBox()
         msg.setWindowTitle("Droits insuffisants — Lumina")
         msg.setIcon(QMessageBox.Icon.Warning)
-        msg.setText(
-            "<b style='font-size:14px;'>Lumina nécessite les droits Administrateur</b>"
-        )
+        msg.setText("<b style='font-size:14px;'>Lumina nécessite les droits Administrateur</b>")
         msg.setInformativeText(
             "La lecture des disques bruts est une opération privilégiée.<br><br>"
             "Cliquez sur <b>Relancer</b> pour obtenir l'invite UAC (Windows) "
@@ -75,6 +74,7 @@ def main():
 
     # Lancer la fenêtre principale
     from app.ui.main_window import MainWindow
+
     window = MainWindow()
     window.show()
     sys.exit(app.exec())

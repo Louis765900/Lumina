@@ -29,11 +29,24 @@ def default_settings() -> dict[str, Any]:
 
 
 def settings_dir(env: Mapping[str, str] | None = None) -> Path:
-    values = env if env is not None else os.environ
-    appdata = values.get("APPDATA")
-    if appdata:
-        return Path(appdata) / "Lumina"
-    return Path.home() / "AppData" / "Roaming" / "Lumina"
+    """
+    Resolve the per-user settings directory.
+
+    With ``env`` supplied (test path), keep the legacy Windows-shaped
+    lookup so existing tests can drive APPDATA explicitly. With no
+    ``env`` argument, defer to the shared cross-platform implementation
+    in :mod:`app.core.platform` which honours XDG on Linux,
+    ``Library/Application Support`` on macOS, and ``%APPDATA%`` on
+    Windows.
+    """
+    if env is not None:
+        appdata = env.get("APPDATA")
+        if appdata:
+            return Path(appdata) / "Lumina"
+        return Path.home() / "AppData" / "Roaming" / "Lumina"
+    from app.core.platform import settings_dir as _platform_settings_dir
+
+    return Path(_platform_settings_dir())
 
 
 def settings_path(env: Mapping[str, str] | None = None) -> Path:
