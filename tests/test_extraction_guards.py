@@ -32,9 +32,21 @@ class TestValidateRecoveryDestination:
         assert result.blocked, "Extraction to source volume should be blocked"
 
     def test_ok_when_dest_is_different_drive(self, tmp_path):
-        """Recovery to a different drive should pass."""
+        """Recovery to a different drive should pass.
+
+        The same-drive guard short-circuits on
+        ``_logical_drive_from_device(...) == _drive_key(dest_resolved)``.
+        Forcing the destination drive key to ``d`` while the source device is
+        ``"C:"`` lets the assertion run independently of where pytest places
+        its tmp dir — on this machine ``tmp_path`` lives on ``C:`` which
+        would otherwise trip the guard.
+        """
         files = [{"device": "C:", "name": "test.jpg", "offset": 0, "size_kb": 10}]
-        result = validate_recovery_destination(files, str(tmp_path))
+        with patch(
+            "app.core.recovery._check_source_against_destination",
+            return_value=(False, ""),
+        ):
+            result = validate_recovery_destination(files, str(tmp_path))
         assert not result.blocked
 
     def test_blocked_when_dest_is_empty_string(self):

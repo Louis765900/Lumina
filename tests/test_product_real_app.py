@@ -137,13 +137,14 @@ def test_quick_scan_user_path_does_not_start_demo_worker(monkeypatch, qapp):
     class _FakeWorker:
         created: list[tuple[dict, bool]] = []
 
-        def __init__(self, disk, simulate=False):
+        def __init__(self, disk, simulate=False, preloaded_files=None):
             self.progress = _Signal()
             self.status_text = _Signal()
             self.files_batch_found = _Signal()
             self.finished = _Signal()
             self.error = _Signal()
             self.started = False
+            self.preloaded_files = preloaded_files
             type(self).created.append((disk, simulate))
 
         def start(self):

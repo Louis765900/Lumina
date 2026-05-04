@@ -7,15 +7,37 @@ import pytest
 
 @pytest.fixture(scope="session")
 def qapp():
-    """Headless QCoreApplication for QThread signal tests (no display required)."""
-    from PyQt6.QtCore import QCoreApplication
+    """
+    Application instance shared across the test session.
 
-    existing = QCoreApplication.instance()
+    Tests in this suite mix two needs:
+      - QThread signal tests (no display) — happy with QCoreApplication.
+      - Widget tests (ScanScreen, SetupWizard, ...) — require a real
+        QApplication. Creating a QWidget with only a QCoreApplication
+        previously caused open-ended hangs on Windows.
+
+    A QApplication satisfies both. On headless CI the offscreen platform
+    plugin keeps it from touching a real display; if PyQt6 widgets are
+    not available at all, falling back to QCoreApplication keeps the
+    QThread tests usable.
+    """
+    try:
+        from PyQt6.QtWidgets import QApplication
+    except (ImportError, OSError):
+        from PyQt6.QtCore import QCoreApplication
+
+        existing = QCoreApplication.instance()
+        if existing is not None:
+            yield existing
+            return
+        yield QCoreApplication([])
+        return
+
+    existing = QApplication.instance()
     if existing is not None:
         yield existing
         return
-    app = QCoreApplication([])
-    yield app
+    yield QApplication([])
 
 
 @pytest.fixture
