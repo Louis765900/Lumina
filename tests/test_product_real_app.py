@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
@@ -16,22 +15,22 @@ needs_widgets = pytest.mark.skipif(
     reason="requires PyQt6 display stack (libEGL)",
 )
 
-from app.core.i18n import t
-from app.core.settings import (
+from app.core.i18n import t  # noqa: E402
+from app.core.native.settings import get_scan_engine  # noqa: E402
+from app.core.recovery import (  # noqa: E402
+    default_recovery_dir,
+    ensure_lumina_log,
+    persist_recovery_dir,
+    validate_recovery_destination,
+)
+from app.core.settings import (  # noqa: E402
     default_settings,
     is_demo_enabled,
     load_settings,
     save_settings,
     validate_settings,
 )
-from app.core.native.settings import get_scan_engine
-from app.core.recovery import (
-    default_recovery_dir,
-    ensure_lumina_log,
-    persist_recovery_dir,
-    validate_recovery_destination,
-)
-from app.workers.scan_worker import ScanWorker
+from app.workers.scan_worker import ScanWorker  # noqa: E402
 
 
 def test_settings_load_missing_file_uses_safe_defaults(tmp_path):
@@ -232,6 +231,37 @@ def test_quick_scan_unsupported_emits_no_results_and_no_fake(monkeypatch, qapp, 
     assert errors == ["Scan rapide non disponible pour cette source. Lancez un scan profond."]
 
 
+def test_quick_scan_metadata_exception_emits_error_without_fake(monkeypatch, qapp, tmp_path):
+    class _ExplodingParser:
+        name = "NTFS"
+
+        def enumerate_files(self, stop_flag, progress_cb, file_found_cb):
+            raise RuntimeError("MFT read failed")
+
+    image = tmp_path / "ntfs-broken.img"
+    image.write_bytes(b"broken ntfs")
+    monkeypatch.setattr("app.core.fs_parser.detect_fs", lambda _raw, _fd: _ExplodingParser())
+
+    def _file_carver_should_not_run():
+        raise AssertionError("quick scan must not instantiate FileCarver")
+
+    monkeypatch.setattr("app.core.file_carver.FileCarver", _file_carver_should_not_run)
+
+    worker = ScanWorker({"device": str(image), "scan_mode": "quick"})
+    batches: list[list[dict]] = []
+    statuses: list[str] = []
+    errors: list[str] = []
+    worker.files_batch_found.connect(batches.append)
+    worker.status_text.connect(statuses.append)
+    worker.error.connect(errors.append)
+
+    worker._run_real()
+
+    assert batches == []
+    assert any("NTFS : erreur pendant l'analyse des metadonnees" in msg for msg in statuses)
+    assert errors == ["Scan rapide non disponible pour cette source. Lancez un scan profond."]
+
+
 @needs_widgets
 def test_first_launch_false_triggers_setup_wizard_and_saves_settings(tmp_path):
     from PyQt6.QtWidgets import QDialog
@@ -373,3 +403,103 @@ def test_empty_extraction_worker_does_not_crash(qapp, tmp_path):
     worker.run()
 
     assert finished == [(0, 0)]
+
+
+@needs_widgets
+def test_extraction_worker_streams_full_file_without_500mb_cap(qapp, tmp_path):
+    from app.ui.screen_results import _ExtractionWorker
+
+    source = tmp_path / "source.img"
+    payload = (b"0123456789ABCDEFGHIJ" * 110)[:2048]
+    source.write_bytes(payload)
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    worker = _ExtractionWorker([], str(out_dir))
+    worker._CHUNK = 17
+    progress: list[int] = []
+    info = {
+        "name": "full.bin",
+        "device": str(source),
+        "offset": 0,
+        "size_kb": 2,
+    }
+
+    worker._extract(info, progress.append)
+
+    assert "truncated" not in info
+    assert "partial" not in info
+    assert info["extracted_size"] == len(payload)
+    assert (out_dir / "full.bin").read_bytes() == payload
+    assert progress[-1] == 100
+
+
+@needs_widgets
+def test_extraction_worker_marks_and_names_partial_files(qapp, tmp_path):
+    from app.ui.screen_results import _ExtractionWorker
+
+    source = tmp_path / "short.img"
+    source.write_bytes(b"too short")
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    worker = _ExtractionWorker([], str(out_dir))
+    info = {
+        "name": "short.bin",
+        "device": str(source),
+        "offset": 0,
+        "size_kb": 1,
+    }
+
+    worker._extract(info)
+
+    assert info["partial"] is True
+    assert "Source terminee" in info["partial_reason"]
+    assert info["extracted_name"] == "short_PARTIEL.bin"
+    assert info["extracted_size"] == len(b"too short")
+    assert (out_dir / "short_PARTIEL.bin").read_bytes() == b"too short"
+    assert not (out_dir / "short.bin").exists()
+
+
+@needs_widgets
+def test_scan_screen_live_table_release_guard(qapp):
+    from PyQt6.QtWidgets import QLabel
+
+    from app.core.version import DISPLAY_VERSION, VERSION
+    from app.ui.main_window import Sidebar
+    from app.ui.screen_scan import ScanScreen
+
+    screen = ScanScreen()
+    assert VERSION == "2.0.0-rc1"
+    assert screen._MAX_LOG_ROWS == 800
+    assert [
+        screen._log_table.horizontalHeaderItem(i).text()
+        for i in range(screen._log_table.columnCount())
+    ] == ["Type", "Nom du fichier", "Ext.", "Taille", "Statut"]
+
+    long_name = (
+        "photo_de_mariage_avec_un_nom_extremement_long_qui_ne_doit_jamais_"
+        "chevaucher_les_colonnes_de_la_table_finale.jpg"
+    )
+    batch = [
+        {
+            "name": long_name if i == ScanScreen._MAX_LOG_ROWS + 24 else f"file_{i}.jpg",
+            "type": "JPG",
+            "size_kb": 1,
+            "integrity": 90,
+        }
+        for i in range(ScanScreen._MAX_LOG_ROWS + 25)
+    ]
+
+    screen._on_batch(batch)
+
+    assert screen._found_count == len(batch)
+    assert screen._log_table.rowCount() == ScanScreen._MAX_LOG_ROWS
+    last_row = screen._log_table.rowCount() - 1
+    assert screen._log_table.item(last_row, 1).toolTip() == long_name
+    assert screen._log_table.item(last_row, 3).text() == "1 Ko"
+    assert screen._log_table.item(last_row, 4).text() == "OK"
+
+    sidebar = Sidebar()
+    labels = [lbl.text() for lbl in sidebar.findChildren(QLabel)]
+    assert DISPLAY_VERSION in labels

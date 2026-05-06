@@ -26,19 +26,39 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.core.disk_detector import DiskDetector
+from app.ui.disk_refresh import DiskListWorker
 from app.ui.palette import (
     ACCENT as _ACCENT,
-    BEVEL_INSET_LIGHT as _BEVEL_INSET_LIGHT,
-    BEVEL_INSET_SHADOW as _BEVEL_INSET_SHADOW,
+)
+from app.ui.palette import (
     BEVEL_LIGHT as _BEVEL_LIGHT,
+)
+from app.ui.palette import (
     BEVEL_SHADOW as _BEVEL_SHADOW,
+)
+from app.ui.palette import (
     CARD as _CARD,
+)
+from app.ui.palette import (
     HOVER as _HOVER,
-    MUTED as _MUTED,
+)
+from app.ui.palette import (
+    OK as _OK,
+)
+from app.ui.palette import (
+    OK_BG as _OK_BG,
+)
+from app.ui.palette import (
     SUB as _SUB,
+)
+from app.ui.palette import (
     TEXT as _TEXT,
 )
+
+_PANEL = "#F8FAFC"
+_SURFACE = "#FFFFFF"
+_LINE = "#D0D5DD"
+_FONT = "'Segoe UI', Arial"
 
 _HISTORY_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
@@ -50,22 +70,31 @@ _DTYPE_ICONS = {
     "nvme": "NVMe", "ssd": "SSD", "usb": "USB", "hdd": "HDD", "other": "DRV",
 }
 
+_EXTERNAL_MARKERS = (
+    " usb ",
+    " removable ",
+    " sd ",
+    " sdxc ",
+    " sdhc ",
+    " card reader ",
+)
+
 # Scenarios de recuperation
 _SCENARIOS = [
-    ("Fichiers supprimes",  "Recuperer des fichiers effacees ou perdus."),
-    ("Corbeille",           "Restaurer les fichiers vides de la Corbeille."),
-    ("Disque formate",      "Recuperer les donnees d'un disque formate."),
-    ("Attaque virale",      "Recuperer des donnees perdues suite a un virus."),
-    ("Panne systeme",       "Recuperer des fichiers d'un PC non demarrable."),
+    ("Fichiers supprimés",  "Récupérer des fichiers effacés ou perdus."),
+    ("Corbeille",           "Restaurer les fichiers vidés de la Corbeille."),
+    ("Disque formaté",      "Récupérer les données d'un disque formaté."),
+    ("Attaque virale",      "Récupérer des données perdues suite à un virus."),
+    ("Panne système",       "Récupérer des fichiers d'un PC non démarrable."),
     ("Appareils externes",  "USB, cartes SD, appareils photo, etc."),
 ]
 
 # Acces rapide
 _QUICK = [
     ("Image / ISO",  "Analyser une image disque .img / .iso"),
-    ("Bureau",       "Recuperer des fichiers supprimes du Bureau"),
-    ("Dossier",      "Choisir un dossier cible a scanner"),
-    ("Corbeille",    "Recuperer les fichiers de la Corbeille"),
+    ("Bureau",       "Récupérer des fichiers supprimés du Bureau"),
+    ("Dossier",      "Choisir un dossier cible à scanner"),
+    ("Corbeille",    "Récupérer les fichiers de la Corbeille"),
 ]
 
 
@@ -76,7 +105,7 @@ _QUICK = [
 def _disk_type(disk: dict) -> str:
     iface = disk.get("interface", "").lower()
     model = disk.get("model", "").lower()
-    if any(x in iface or x in model for x in ("usb", "sd", "removable")):
+    if disk.get("removable") or _has_external_marker(iface, model):
         return "usb"
     if "nvme" in iface or "nvme" in model:
         return "nvme"
@@ -92,7 +121,15 @@ def _is_external(disk: dict) -> bool:
         return True
     iface = disk.get("interface", "").lower()
     model = disk.get("model", "").lower()
-    return any(x in iface or x in model for x in ("usb", "sd", "removable"))
+    return _has_external_marker(iface, model)
+
+
+def _has_external_marker(*parts: str) -> bool:
+    text = " ".join(parts)
+    normalized = f" {text.replace('-', ' ').replace('_', ' ').lower()} "
+    return "microsd" in normalized or any(
+        marker in normalized for marker in _EXTERNAL_MARKERS
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -151,36 +188,39 @@ class DiskCard(QFrame):
         pct    = (used / total) if total > 0 else 0.0
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(8, 6, 8, 6)
-        lay.setSpacing(4)
+        lay.setContentsMargins(10, 8, 10, 8)
+        lay.setSpacing(5)
 
         # Ligne du haut : badge type + nom + device
         top = QHBoxLayout()
         top.setSpacing(8)
 
         badge = QLabel(_DTYPE_ICONS.get(dtype, "DRV"))
-        badge.setFixedSize(32, 16)
+        badge.setFixedSize(38, 20)
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         badge.setStyleSheet(
-            f"background-color: {_ACCENT}; color: {_BEVEL_LIGHT};"
-            "font-size: 9px; font-weight: 700;"
-            "font-family: 'Work Sans', Arial;"
+            f"background-color: {_OK_BG}; color: {_ACCENT};"
+            f"border: 1px solid {_LINE}; border-radius: 2px;"
+            "font-size: 10px; font-weight: 800;"
+            f"font-family: {_FONT};"
         )
 
         info = QVBoxLayout()
         info.setSpacing(1)
-        name = disk.get("name", "Disque")
+        full_name = disk.get("name", "Disque")
+        name = full_name
         if len(name) > 28:
             name = name[:26] + "..."
         n_lbl = QLabel(name)
+        n_lbl.setToolTip(full_name)
         n_lbl.setStyleSheet(
-            f"color: {_TEXT}; font-size: 11px; font-weight: 700;"
-            "font-family: 'Work Sans', Arial; background: transparent;"
+            f"color: {_TEXT}; font-size: 12px; font-weight: 800;"
+            f"font-family: {_FONT}; background: transparent;"
         )
         d_lbl = QLabel(disk.get("device", ""))
         d_lbl.setStyleSheet(
-            f"color: {_SUB}; font-size: 10px;"
-            "font-family: 'Work Sans', Arial; background: transparent;"
+            f"color: {_SUB}; font-size: 11px;"
+            f"font-family: {_FONT}; background: transparent;"
         )
         info.addWidget(n_lbl)
         info.addWidget(d_lbl)
@@ -197,13 +237,13 @@ class DiskCard(QFrame):
         )
         v_lbl = QLabel(vol_txt)
         v_lbl.setStyleSheet(
-            f"color: {_TEXT}; font-size: 10px; background: transparent;"
-            "font-family: 'Work Sans', Arial;"
+            f"color: {_TEXT}; font-size: 11px; background: transparent;"
+            f"font-family: {_FONT};"
         )
         p_lbl = QLabel(f"{int(pct * 100)}%")
         p_lbl.setStyleSheet(
-            f"color: {_ACCENT}; font-size: 10px; font-weight: 700; background: transparent;"
-            "font-family: 'Work Sans', Arial;"
+            f"color: {_ACCENT}; font-size: 11px; font-weight: 800; background: transparent;"
+            f"font-family: {_FONT};"
         )
         stats.addWidget(v_lbl)
         stats.addStretch()
@@ -216,20 +256,16 @@ class DiskCard(QFrame):
             self.setStyleSheet(
                 "DiskCard {"
                 f"  background-color: {_HOVER};"
-                f"  border-top: 2px solid {_BEVEL_SHADOW};"
-                f"  border-left: 2px solid {_BEVEL_SHADOW};"
-                f"  border-bottom: 2px solid {_BEVEL_LIGHT};"
-                f"  border-right: 2px solid {_BEVEL_LIGHT};"
+                f"  border: 1px solid {_ACCENT};"
+                "  border-radius: 4px;"
                 "}"
             )
         else:
             self.setStyleSheet(
                 "DiskCard {"
-                f"  background-color: {_CARD};"
-                f"  border-top: 2px solid {_BEVEL_LIGHT};"
-                f"  border-left: 2px solid {_BEVEL_LIGHT};"
-                f"  border-bottom: 2px solid {_BEVEL_SHADOW};"
-                f"  border-right: 2px solid {_BEVEL_SHADOW};"
+                f"  background-color: {_SURFACE};"
+                f"  border: 1px solid {_LINE};"
+                "  border-radius: 4px;"
                 "}"
             )
 
@@ -369,14 +405,14 @@ class _HistoryRow(QFrame):
             entry.get("scan_file") and os.path.isfile(entry["scan_file"])
         )
 
-        self.setFixedHeight(22)
+        self.setFixedHeight(36)
         if self._can_reload:
             self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._set_style(False)
 
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(6, 0, 6, 0)
-        lay.setSpacing(12)
+        lay.setContentsMargins(12, 4, 12, 4)
+        lay.setSpacing(14)
 
         # Date
         try:
@@ -395,15 +431,15 @@ class _HistoryRow(QFrame):
 
         date_lbl = QLabel(date_str)
         date_lbl.setStyleSheet(
-            f"color: {_SUB}; font-size: 10px; background: transparent;"
-            "font-family: 'Work Sans', Arial;"
+            f"color: {_SUB}; font-size: 11px; background: transparent;"
+            f"font-family: {_FONT};"
         )
         lay.addWidget(date_lbl)
 
         dev_lbl = QLabel(entry.get("device", "-"))
         dev_lbl.setStyleSheet(
-            f"color: {_TEXT}; font-size: 10px; font-weight: 700; background: transparent;"
-            "font-family: 'Work Sans', Arial;"
+            f"color: {_TEXT}; font-size: 11px; font-weight: 800; background: transparent;"
+            f"font-family: {_FONT};"
         )
         lay.addWidget(dev_lbl)
         lay.addStretch()
@@ -411,29 +447,31 @@ class _HistoryRow(QFrame):
         if entry.get("simulated"):
             sim_lbl = QLabel("[simulation]")
             sim_lbl.setStyleSheet(
-                f"color: {_BEVEL_SHADOW}; font-size: 10px; background: transparent;"
+                f"color: {_SUB}; font-size: 11px; background: transparent;"
+                f"font-family: {_FONT};"
             )
             lay.addWidget(sim_lbl)
 
         n = entry.get("file_count", 0)
         count_lbl = QLabel(f"{n} fichier{'s' if n != 1 else ''}")
         count_lbl.setStyleSheet(
-            f"color: {_ACCENT}; font-size: 10px; font-weight: 700; background: transparent;"
-            "font-family: 'Work Sans', Arial;"
+            f"color: {_ACCENT}; font-size: 11px; font-weight: 800; background: transparent;"
+            f"font-family: {_FONT};"
         )
         lay.addWidget(count_lbl)
 
         if self._can_reload:
             reload_lbl = QLabel("[recharger]")
             reload_lbl.setStyleSheet(
-                f"color: {_BEVEL_SHADOW}; font-size: 10px; background: transparent;"
+                f"color: {_OK}; font-size: 11px; font-weight: 800; background: transparent;"
+                f"font-family: {_FONT};"
             )
             lay.addWidget(reload_lbl)
 
     def _set_style(self, hovered: bool):
         if hovered and self._can_reload:
             self.setStyleSheet(
-                f"_HistoryRow { background-color: {_ACCENT}; border: 0px; }"
+                f"_HistoryRow {{ background-color: {_ACCENT}; border: 0px; }}"
             )
             for child in self.findChildren(QLabel):
                 child.setStyleSheet(
@@ -444,7 +482,10 @@ class _HistoryRow(QFrame):
                 )
         else:
             self.setStyleSheet(
-                "_HistoryRow { background-color: transparent; border: 0px; }"
+                "_HistoryRow {"
+                f" background-color: {_SURFACE};"
+                f" border-bottom: 1px solid {_LINE};"
+                "}"
             )
 
     def enterEvent(self, e):
@@ -473,7 +514,7 @@ class _HistoryRow(QFrame):
 class _SectionHdr(QWidget):
     def __init__(self, title: str, parent=None):
         super().__init__(parent)
-        self.setFixedHeight(20)
+        self.setFixedHeight(28)
 
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
@@ -481,8 +522,8 @@ class _SectionHdr(QWidget):
 
         lbl = QLabel(title)
         lbl.setStyleSheet(
-            f"color: {_TEXT}; font-size: 11px; font-weight: 700;"
-            "font-family: 'Work Sans', Arial; background: transparent;"
+            f"color: {_ACCENT}; font-size: 13px; font-weight: 800;"
+            f"font-family: {_FONT}; background: transparent;"
         )
         row.addWidget(lbl)
         row.addStretch()
@@ -500,6 +541,7 @@ class HomeScreen(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setStyleSheet(f"background-color: {_CARD};")
+        self._disk_worker: DiskListWorker | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -507,24 +549,25 @@ class HomeScreen(QWidget):
 
         # En-tete
         hdr = QWidget()
-        hdr.setFixedHeight(40)
+        hdr.setFixedHeight(62)
         hdr.setStyleSheet(
-            f"background-color: {_CARD};"
-            f"border-bottom: 2px solid {_BEVEL_SHADOW};"
+            f"background-color: {_PANEL};"
+            f"border-bottom: 1px solid {_LINE};"
         )
         hr = QHBoxLayout(hdr)
-        hr.setContentsMargins(8, 4, 8, 4)
+        hr.setContentsMargins(18, 10, 18, 10)
+        hr.setSpacing(12)
 
-        title_lbl = QLabel("Selectionnez un emplacement pour demarrer la recuperation")
+        title_lbl = QLabel("Sélectionnez un emplacement pour démarrer la récupération")
         title_lbl.setStyleSheet(
-            f"color: {_TEXT}; font-size: 12px; font-weight: 700;"
-            "font-family: 'Work Sans', Arial; background: transparent;"
+            f"color: {_TEXT}; font-size: 15px; font-weight: 800;"
+            f"font-family: {_FONT}; background: transparent;"
         )
         hr.addWidget(title_lbl)
         hr.addStretch()
 
         self._refresh_btn = QPushButton("Actualiser")
-        self._refresh_btn.setFixedSize(80, 24)
+        self._refresh_btn.setFixedSize(104, 34)
         self._refresh_btn.setCursor(Qt.CursorShape.ArrowCursor)
         self._refresh_btn.setToolTip("Actualiser les disques")
         self._refresh_btn.clicked.connect(self.refresh_disks)
@@ -536,14 +579,14 @@ class HomeScreen(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setStyleSheet(
-            f"QScrollArea { background-color: {_CARD}; border: none; }"
+            f"QScrollArea {{ background-color: {_CARD}; border: none; }}"
         )
 
         self._content = QWidget()
         self._content.setStyleSheet(f"background-color: {_CARD};")
         self._layout = QVBoxLayout(self._content)
-        self._layout.setContentsMargins(12, 8, 12, 12)
-        self._layout.setSpacing(16)
+        self._layout.setContentsMargins(18, 16, 18, 18)
+        self._layout.setSpacing(14)
 
         scroll.setWidget(self._content)
         root.addWidget(scroll, stretch=1)
@@ -553,53 +596,111 @@ class HomeScreen(QWidget):
     # ── Actualisation ─────────────────────────────────────────────────────────
 
     def refresh_disks(self):
+        if self._disk_worker and self._disk_worker.isRunning():
+            return
+
+        self._refresh_btn.setEnabled(False)
+        self._refresh_btn.setText("...")
+        self._clear_layout()
+        self._add_disk_message("Recherche des disques...", "Énumération en cours.")
+
+        self._disk_worker = DiskListWorker(self)
+        self._disk_worker.loaded.connect(self._on_disks_loaded)
+        self._disk_worker.finished.connect(self._on_disk_worker_finished)
+        self._disk_worker.start()
+
+    def _on_disk_worker_finished(self):
+        self._refresh_btn.setEnabled(True)
+        self._refresh_btn.setText("Actualiser")
+        if self._disk_worker:
+            self._disk_worker.deleteLater()
+            self._disk_worker = None
+
+    def _on_disks_loaded(self, disks: list, error: str):
+        self._clear_layout()
+        self._render_disks(disks, error)
+
+    def _clear_layout(self):
         while self._layout.count():
             item = self._layout.takeAt(0)
             if w := item.widget():
                 w.deleteLater()
 
-        disks    = DiskDetector.list_disks()
+    def _render_disks(self, disks: list, error: str = ""):
         internal = [d for d in disks if not _is_external(d)]
         external = [d for d in disks if _is_external(d)]
 
         delay = 0
+        if error:
+            self._add_disk_message("Aucun disque détecté", f"Erreur de détection : {error}")
+        elif not disks:
+            self._add_disk_message(
+                "Aucun disque détecté",
+                "Branchez un disque local, USB ou une carte SD, puis cliquez sur Actualiser.",
+            )
         if internal:
             self._add_disk_section("Disques durs", internal, delay)
             delay += len(internal)
         if external:
-            self._add_disk_section("Peripheriques externes", external, delay)
+            self._add_disk_section("Périphériques externes", external, delay)
             delay += len(external)
 
-        self._add_scenarios(delay)
-        self._add_quick()
         self._add_history()
         self._layout.addStretch()
 
     # ── Sections ──────────────────────────────────────────────────────────────
+
+    def _add_disk_message(self, title: str, detail: str):
+        panel = QFrame()
+        panel.setObjectName("HomeMessagePanel")
+        panel.setStyleSheet(
+            "QFrame#HomeMessagePanel {"
+            f"  background-color: {_PANEL};"
+            f"  border: 1px solid {_LINE};"
+            "  border-radius: 4px;"
+            "}"
+        )
+        lay = QVBoxLayout(panel)
+        lay.setContentsMargins(16, 14, 16, 14)
+        lay.setSpacing(5)
+
+        title_lbl = QLabel(title)
+        title_lbl.setStyleSheet(
+            f"color: {_TEXT}; font-size: 14px; font-weight: 800;"
+            f"font-family: {_FONT}; background: transparent;"
+        )
+        detail_lbl = QLabel(detail)
+        detail_lbl.setWordWrap(True)
+        detail_lbl.setStyleSheet(
+            f"color: {_SUB}; font-size: 12px;"
+            f"font-family: {_FONT}; background: transparent;"
+        )
+        lay.addWidget(title_lbl)
+        lay.addWidget(detail_lbl)
+        self._layout.addWidget(panel)
 
     def _add_disk_section(self, title: str, disks: list, delay_start: int):
         self._layout.addWidget(_SectionHdr(title))
 
         # Sunken panel for disk list
         panel = QFrame()
+        panel.setObjectName("HomeDiskPanel")
         panel.setStyleSheet(
-            "QFrame {"
-            f"  background-color: {_BEVEL_LIGHT};"
-            f"  border-top: 2px solid {_BEVEL_SHADOW};"
-            f"  border-left: 2px solid {_BEVEL_SHADOW};"
-            f"  border-bottom: 2px solid {_BEVEL_LIGHT};"
-            f"  border-right: 2px solid {_BEVEL_LIGHT};"
+            "QFrame#HomeDiskPanel {"
+            f"  background-color: {_PANEL};"
+            f"  border: 1px solid {_LINE};"
+            "  border-radius: 4px;"
             "}"
         )
         panel_lay = QVBoxLayout(panel)
-        panel_lay.setContentsMargins(6, 6, 6, 6)
-        panel_lay.setSpacing(8)
+        panel_lay.setContentsMargins(10, 10, 10, 10)
+        panel_lay.setSpacing(10)
 
         current_row: QHBoxLayout | None = None
         for i, disk in enumerate(disks):
             if i % 3 == 0:
                 current_row = QHBoxLayout()
-                current_row.setSpacing(12)
+                current_row.setSpacing(14)
                 panel_lay.addLayout(current_row)
 
             card = DiskCard(disk)
@@ -612,7 +713,7 @@ class HomeScreen(QWidget):
         self._layout.addWidget(panel)
 
     def _add_scenarios(self, delay_start: int):
-        self._layout.addWidget(_SectionHdr("Scenarios de recuperation"))
+        self._layout.addWidget(_SectionHdr("Scénarios de récupération"))
 
         outer = QWidget()
         outer.setStyleSheet(f"background-color: {_CARD};")
@@ -639,7 +740,7 @@ class HomeScreen(QWidget):
         self._layout.addWidget(outer)
 
     def _add_quick(self):
-        self._layout.addWidget(_SectionHdr("Acces rapide"))
+        self._layout.addWidget(_SectionHdr("Accès rapide"))
 
         wrap = QWidget()
         wrap.setStyleSheet(f"background-color: {_CARD};")
@@ -664,17 +765,16 @@ class HomeScreen(QWidget):
         if not history:
             return
 
-        self._layout.addWidget(_SectionHdr("Scans recents"))
+        self._layout.addWidget(_SectionHdr("Scans récents"))
 
         # Win98 sunken list panel
         panel = QFrame()
+        panel.setObjectName("HomeHistoryPanel")
         panel.setStyleSheet(
-            "QFrame {"
-            f"  background-color: {_BEVEL_LIGHT};"
-            f"  border-top: 2px solid {_BEVEL_SHADOW};"
-            f"  border-left: 2px solid {_BEVEL_SHADOW};"
-            f"  border-bottom: 2px solid {_BEVEL_LIGHT};"
-            f"  border-right: 2px solid {_BEVEL_LIGHT};"
+            "QFrame#HomeHistoryPanel {"
+            f"  background-color: {_SURFACE};"
+            f"  border: 1px solid {_LINE};"
+            "  border-radius: 4px;"
             "}"
         )
         col = QVBoxLayout(panel)
@@ -689,7 +789,7 @@ class HomeScreen(QWidget):
             if i < len(entries) - 1:
                 sep = QFrame()
                 sep.setFixedHeight(1)
-                sep.setStyleSheet(f"background-color: {_CARD}; border: 0px;")
+                sep.setStyleSheet(f"background-color: {_LINE}; border: 0px;")
                 col.addWidget(sep)
         self._layout.addWidget(panel)
 

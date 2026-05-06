@@ -4,22 +4,21 @@ from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
 block_cipher = None
 
-# Only include native helper if it exists (built via `cargo build --release`)
-_extra_binaries = []
-if os.path.exists('native/lumina_scan/target/release/lumina_scan.exe'):
-    _extra_binaries.append((
-        'native/lumina_scan/target/release/lumina_scan.exe',
-        'native/lumina_scan',
-    ))
+_no_upx = os.environ.get('LUMINA_NO_UPX') == '1'
+_rust_helper = 'native/lumina_scan/target/release/lumina_scan.exe'
+if not os.path.exists(_rust_helper):
+    raise SystemExit(
+        'Rust helper missing. Run `python scripts/build.py` so cargo builds lumina_scan.exe first.'
+    )
+_extra_binaries = [(_rust_helper, 'native/lumina_scan')]
 
 _extra_datas = [('app/ui/styles.qss', 'app/ui')]
-if os.path.exists('.env'):
-    _extra_datas.append(('.env', '.'))
 
 # Plugin carvers are discovered via pkgutil.iter_modules at runtime.
 # PyInstaller needs both explicit hiddenimports AND the .py source files on disk
 # so iter_modules() can still enumerate them inside the frozen bundle.
 _plugin_hiddenimports = collect_submodules('app.plugins')
+_module_hiddenimports = collect_submodules('app.modules')
 _plugin_datas = collect_data_files(
     'app.plugins.carvers',
     include_py_files=True,
@@ -38,7 +37,7 @@ a = Analysis(
         'PyQt6.QtNetwork',
         'PyQt6.sip',
         'psutil',
-    ] + _plugin_hiddenimports,
+    ] + _plugin_hiddenimports + _module_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -64,7 +63,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=not _no_upx,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,

@@ -20,7 +20,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.core.disk_detector import DiskDetector
+from app.ui.disk_refresh import DiskListWorker
+from app.ui.palette import (
+    ACCENT as _ACCENT,
+)
+from app.ui.palette import (
+    CARD as _CARD,
+)
 from app.ui.palette import (
     ERR as _ERR,
 )
@@ -28,21 +34,32 @@ from app.ui.palette import (
     OK as _OK,
 )
 from app.ui.palette import (
+    SUB as _SUB,
+)
+from app.ui.palette import (
+    TEXT as _TEXT,
+)
+from app.ui.palette import (
     WARN as _WARN,
 )
+
+_PANEL = "#F8FAFC"
+_SURFACE = "#FFFFFF"
+_LINE = "#D0D5DD"
+_FONT = "'Segoe UI', Arial"
 
 
 def _section_hdr(title: str) -> QWidget:
     w = QWidget()
-    w.setFixedHeight(24)
-    w.setStyleSheet("background-color: #C0C0C0;")
+    w.setFixedHeight(30)
+    w.setStyleSheet(f"background-color: {_CARD};")
     row = QHBoxLayout(w)
     row.setContentsMargins(0, 4, 0, 0)
     row.setSpacing(8)
     lbl = QLabel(title.upper())
     lbl.setStyleSheet(
-        "color: #000000; font-size: 10px; font-weight: 700;"
-        "font-family: 'Work Sans', Arial; background: transparent;"
+        f"color: {_ACCENT}; font-size: 12px; font-weight: 800;"
+        f"font-family: {_FONT}; background: transparent;"
     )
     row.addWidget(lbl)
     row.addStretch()
@@ -123,8 +140,9 @@ class _StatCard(QFrame):
 class RepairScreen(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setStyleSheet("background-color: #C0C0C0;")
+        self.setStyleSheet(f"background-color: {_CARD};")
         self._worker: _CmdWorker | None = None
+        self._disk_worker: DiskListWorker | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -132,16 +150,16 @@ class RepairScreen(QWidget):
 
         # ── En-tete ───────────────────────────────────────────────────────────
         hdr = QWidget()
-        hdr.setFixedHeight(40)
+        hdr.setFixedHeight(62)
         hdr.setStyleSheet(
-            "background-color: #C0C0C0; border-bottom: 2px solid #808080;"
+            f"background-color: {_PANEL}; border-bottom: 1px solid {_LINE};"
         )
         hr = QHBoxLayout(hdr)
-        hr.setContentsMargins(8, 4, 8, 4)
+        hr.setContentsMargins(18, 10, 18, 10)
         title = QLabel("Diagnostic disque")
         title.setStyleSheet(
-            "color: #000000; font-size: 12px; font-weight: 700;"
-            "font-family: 'Work Sans', Arial; background: transparent;"
+            f"color: {_TEXT}; font-size: 15px; font-weight: 800;"
+            f"font-family: {_FONT}; background: transparent;"
         )
         hr.addWidget(title)
         hr.addStretch()
@@ -151,13 +169,13 @@ class RepairScreen(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setStyleSheet("QScrollArea { background-color: #C0C0C0; border: none; }")
+        scroll.setStyleSheet(f"QScrollArea {{ background-color: {_CARD}; border: none; }}")
 
         cw = QWidget()
-        cw.setStyleSheet("background-color: #C0C0C0;")
+        cw.setStyleSheet(f"background-color: {_CARD};")
         lay = QVBoxLayout(cw)
-        lay.setContentsMargins(12, 12, 12, 12)
-        lay.setSpacing(10)
+        lay.setContentsMargins(18, 16, 18, 18)
+        lay.setSpacing(12)
         lay.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         # ── Selecteur de disque ───────────────────────────────────────────────
@@ -182,7 +200,7 @@ class RepairScreen(QWidget):
         # ── Stats ─────────────────────────────────────────────────────────────
         lay.addWidget(_section_hdr("Informations du disque"))
         self._stats_container = QWidget()
-        self._stats_container.setStyleSheet("background-color: #C0C0C0;")
+        self._stats_container.setStyleSheet(f"background-color: {_CARD};")
         self._stats_lay = QHBoxLayout(self._stats_container)
         self._stats_lay.setContentsMargins(0, 0, 0, 0)
         self._stats_lay.setSpacing(8)
@@ -242,9 +260,8 @@ class RepairScreen(QWidget):
         self._console.setFixedHeight(200)
         self._console.setStyleSheet(
             "QTextEdit {"
-            "  background-color: #FFFFFF; color: #000000;"
-            "  border-top: 2px solid #808080; border-left: 2px solid #808080;"
-            "  border-bottom: 2px solid #FFFFFF; border-right: 2px solid #FFFFFF;"
+            f"  background-color: {_SURFACE}; color: {_TEXT};"
+            f"  border: 1px solid {_LINE}; border-radius: 4px;"
             "  font-family: 'Courier New', monospace; font-size: 10px;"
             "}"
         )
@@ -262,17 +279,15 @@ class RepairScreen(QWidget):
 
     def _tool_btn(self, title: str, desc: str) -> QPushButton:
         btn = QPushButton()
-        btn.setFixedSize(200, 60)
+        btn.setFixedSize(210, 66)
         btn.setCursor(Qt.CursorShape.ArrowCursor)
         btn.setStyleSheet(
             "QPushButton {"
-            "  background-color: #C0C0C0; text-align: left;"
-            "  border-top: 2px solid #FFFFFF; border-left: 2px solid #FFFFFF;"
-            "  border-bottom: 2px solid #808080; border-right: 2px solid #808080;"
+            f"  background-color: {_SURFACE}; text-align: left;"
+            f"  border: 1px solid {_LINE}; border-radius: 4px;"
             "}"
             "QPushButton:pressed {"
-            "  border-top: 2px solid #808080; border-left: 2px solid #808080;"
-            "  border-bottom: 2px solid #FFFFFF; border-right: 2px solid #FFFFFF;"
+            f"  background-color: {_PANEL}; border: 1px solid {_ACCENT};"
             "}"
         )
         inner = QVBoxLayout(btn)
@@ -281,22 +296,45 @@ class RepairScreen(QWidget):
 
         head = QLabel(title)
         head.setStyleSheet(
-            "color: #000000; font-size: 11px; font-weight: 700;"
-            "font-family: 'Work Sans', Arial; background: transparent;"
+            f"color: {_TEXT}; font-size: 12px; font-weight: 800;"
+            f"font-family: {_FONT}; background: transparent;"
         )
         body = QLabel(desc)
         body.setWordWrap(True)
         body.setStyleSheet(
-            "color: #404040; font-size: 10px;"
-            "font-family: 'Work Sans', Arial; background: transparent;"
+            f"color: {_SUB}; font-size: 11px;"
+            f"font-family: {_FONT}; background: transparent;"
         )
         inner.addWidget(head)
         inner.addWidget(body)
         return btn
 
     def _load_disks(self):
-        self._disks = DiskDetector.list_disks()
+        if self._disk_worker and self._disk_worker.isRunning():
+            return
+        self._disks = []
         self._disk_combo.clear()
+        self._disk_combo.addItem("Recherche des disques...")
+
+        self._disk_worker = DiskListWorker(self)
+        self._disk_worker.loaded.connect(self._on_disks_loaded)
+        self._disk_worker.finished.connect(self._on_disk_worker_finished)
+        self._disk_worker.start()
+
+    def _on_disk_worker_finished(self):
+        if self._disk_worker:
+            self._disk_worker.deleteLater()
+            self._disk_worker = None
+
+    def _on_disks_loaded(self, disks: list, error: str):
+        self._disks = disks
+        self._disk_combo.clear()
+        if error:
+            self._disk_combo.addItem("Aucun disque detecte")
+            return
+        if not self._disks:
+            self._disk_combo.addItem("Aucun disque detecte")
+            return
         for d in self._disks:
             self._disk_combo.addItem(
                 f"{d.get('name','?')}  ({d.get('device','')})",

@@ -14,14 +14,26 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.core.disk_detector import DiskDetector
+from app.ui.disk_refresh import DiskListWorker
 from app.ui.palette import (
     ACCENT as _ACCENT,
+)
+from app.ui.palette import (
     BEVEL_LIGHT as _BEVEL_LIGHT,
+)
+from app.ui.palette import (
     BEVEL_SHADOW as _BEVEL_SHADOW,
+)
+from app.ui.palette import (
     BORDER as _BORDER,
+)
+from app.ui.palette import (
     CARD as _CARD,
+)
+from app.ui.palette import (
     SUB as _SUB,
+)
+from app.ui.palette import (
     TEXT as _TEXT,
 )
 
@@ -149,6 +161,7 @@ class SdCardScreen(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setStyleSheet(f"background-color: {_CARD};")
+        self._disk_worker: DiskListWorker | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -171,11 +184,11 @@ class SdCardScreen(QWidget):
         hr.addWidget(title)
         hr.addStretch()
 
-        refresh_btn = QPushButton("Actualiser")
-        refresh_btn.setFixedSize(80, 24)
-        refresh_btn.setToolTip("Actualiser")
-        refresh_btn.clicked.connect(self.refresh)
-        hr.addWidget(refresh_btn)
+        self._refresh_btn = QPushButton("Actualiser")
+        self._refresh_btn.setFixedSize(80, 24)
+        self._refresh_btn.setToolTip("Actualiser")
+        self._refresh_btn.clicked.connect(self.refresh)
+        hr.addWidget(self._refresh_btn)
         root.addWidget(hdr)
 
         # Contenu scrollable
@@ -203,13 +216,36 @@ class SdCardScreen(QWidget):
         self.refresh()
 
     def refresh(self):
+        if self._disk_worker and self._disk_worker.isRunning():
+            return
+
+        self._refresh_btn.setEnabled(False)
+        self._refresh_btn.setText("...")
+        self._clear_layout()
+
+        self._disk_worker = DiskListWorker(self)
+        self._disk_worker.loaded.connect(self._on_disks_loaded)
+        self._disk_worker.finished.connect(self._on_disk_worker_finished)
+        self._disk_worker.start()
+
+    def _on_disk_worker_finished(self):
+        self._refresh_btn.setEnabled(True)
+        self._refresh_btn.setText("Actualiser")
+        if self._disk_worker:
+            self._disk_worker.deleteLater()
+            self._disk_worker = None
+
+    def _on_disks_loaded(self, disks: list, _error: str):
+        self._clear_layout()
+        self._render_disks([d for d in disks if _is_external(d)])
+
+    def _clear_layout(self):
         while self._layout.count():
             item = self._layout.takeAt(0)
             if w := item.widget():
                 w.deleteLater()
 
-        disks = [d for d in DiskDetector.list_disks() if _is_external(d)]
-
+    def _render_disks(self, disks: list):
         if not disks:
             empty = _EmptyState()
             empty.refresh_clicked.connect(self.refresh)

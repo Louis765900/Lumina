@@ -10,10 +10,7 @@ import struct
 import tempfile
 from unittest.mock import patch
 
-import pytest
-
 from app.core.fs_parser import HFSPlusParser, detect_fs
-
 
 # ---------------------------------------------------------------------------
 # Helpers

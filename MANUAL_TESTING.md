@@ -1,4 +1,4 @@
-# Lumina v1.0.0 Manual Testing
+# Lumina v2.0.0-rc1 Manual Testing
 
 Use this checklist before distributing a build.
 

@@ -88,6 +88,45 @@ class ScanWorker(QThread):
         self._pause_event.set()
         self._found_files: list[dict] = list(preloaded_files) if preloaded_files else []
         self._lock = threading.Lock()
+        self._integrity_score_enabled = False
+        self._storage_index_enabled = False
+        self._init_optional_modules()
+
+    def _init_optional_modules(self) -> None:
+        try:
+            from app.modules import get_module_registry
+
+            registry = get_module_registry()
+            self._integrity_score_enabled = registry.is_enabled("integrity-score")
+            self._storage_index_enabled = registry.is_enabled("storage-index")
+        except Exception as exc:
+            _log.debug("[ScanWorker] Optional module registry unavailable: %s", exc)
+
+    def _prepare_file_info(self, info: dict) -> dict:
+        if not self._integrity_score_enabled:
+            return info
+        try:
+            from app.modules.integrity_score import enrich_file
+
+            return enrich_file(info)
+        except Exception as exc:
+            _log.debug("[ScanWorker] integrity-score skipped for %s: %s", info.get("name"), exc)
+            return info
+
+    def _prepare_file_batch(self, batch: list[dict]) -> list[dict]:
+        return [self._prepare_file_info(info) for info in batch]
+
+    def _index_scan_snapshot(self, files: list[dict]) -> None:
+        if not self._storage_index_enabled or not files:
+            return
+        try:
+            from app.modules.storage_index import index_scan_results
+
+            scan_id = index_scan_results(files, source=self._disk.get("device", ""))
+            if scan_id:
+                _log.info("[ScanWorker] storage-index updated scan_id=%s files=%d", scan_id, len(files))
+        except Exception as exc:
+            _log.debug("[ScanWorker] storage-index skipped: %s", exc)
 
     # ── Contrôle public ───────────────────────────────────────────────────────
 
@@ -103,6 +142,13 @@ class ScanWorker(QThread):
 
     def is_paused(self) -> bool:
         return not self._pause_event.is_set()
+
+    def _should_stop_scan(self) -> bool:
+        """Pause-aware stop callback for parser/carver checkpoints."""
+        while not self._pause_event.wait(0.1):
+            if self._stop_requested:
+                return True
+        return self._stop_requested
 
     # ── Entrée du thread ──────────────────────────────────────────────────────
 
@@ -121,9 +167,11 @@ class ScanWorker(QThread):
             self.error.emit(str(exc))
         finally:
             with self._lock:
-                snapshot = list(self._found_files)
+                snapshot = self._prepare_file_batch(list(self._found_files))
+                self._found_files = list(snapshot)
             if snapshot:
                 self._save_checkpoint()
+                self._index_scan_snapshot(snapshot)
             self.finished.emit(snapshot)
 
     # ── Mode simulation ───────────────────────────────────────────────────────
@@ -175,6 +223,7 @@ class ScanWorker(QThread):
                         "integrity": integrity,
                         "simulated": True,
                     }
+                    info = self._prepare_file_info(info)
                     with self._lock:
                         self._found_files.append(info)
                     batch.append(info)
@@ -207,6 +256,7 @@ class ScanWorker(QThread):
                     "integrity": integrity,
                     "simulated": True,
                 }
+                info = self._prepare_file_info(info)
                 with self._lock:
                     self._found_files.append(info)
                 self.files_batch_found.emit([info])
@@ -266,6 +316,7 @@ class ScanWorker(QThread):
         def _on_file(info: dict) -> None:
             nonlocal local_batch, last_emit, last_checkpoint
             self._pause_event.wait()
+            info = self._prepare_file_info(info)
             with self._lock:
                 self._found_files.append(info)
             local_batch.append(info)
@@ -282,7 +333,7 @@ class ScanWorker(QThread):
             raw_dev,
             progress_cb=_on_progress,
             file_found_cb=_on_file,
-            stop_flag=lambda: self._stop_requested,
+            stop_flag=self._should_stop_scan,
             dedup_check=dedup_check,
         )
 
@@ -341,6 +392,7 @@ class ScanWorker(QThread):
                         dedup_check,
                     )
                     if info is not None:
+                        info = self._prepare_file_info(info)
                         native_buffer.append(info)
 
             def _on_progress(progress) -> None:
@@ -353,7 +405,7 @@ class ScanWorker(QThread):
                 signatures,
                 on_candidates=_on_candidates,
                 on_progress=_on_progress,
-                stop_flag=lambda: self._stop_requested,
+                stop_flag=self._should_stop_scan,
             )
 
         if summary.stopped:
@@ -362,7 +414,8 @@ class ScanWorker(QThread):
         if native_buffer:
             with self._lock:
                 self._found_files.extend(native_buffer)
-            self.files_batch_found.emit(list(native_buffer))
+            for i in range(0, len(native_buffer), 50):
+                self.files_batch_found.emit(list(native_buffer[i:i + 50]))
 
     def _native_candidate_to_file_info(
         self,
@@ -422,6 +475,7 @@ class ScanWorker(QThread):
                         self._pause_event.wait()
                         for start, length in info.get("data_runs", ()):
                             dedup_index.add(start, length)
+                        info = self._prepare_file_info(info)
                         with self._lock:
                             self._found_files.append(info)
                         _fs_pending.append(info)
@@ -429,11 +483,25 @@ class ScanWorker(QThread):
                             self.files_batch_found.emit(list(_fs_pending))
                             _fs_pending.clear()
 
-                    count = parser.enumerate_files(
-                        stop_flag=lambda: self._stop_requested,
-                        progress_cb=_fs_progress,
-                        file_found_cb=_fs_file,
-                    )
+                    try:
+                        count = parser.enumerate_files(
+                            stop_flag=self._should_stop_scan,
+                            progress_cb=_fs_progress,
+                            file_found_cb=_fs_file,
+                        )
+                    except Exception as exc:
+                        _log.warning(
+                            "[ScanWorker] %s metadata enumeration failed on %s: %s",
+                            fs_name,
+                            raw_dev,
+                            exc,
+                            exc_info=True,
+                        )
+                        self.status_text.emit(
+                            f"{fs_name} : erreur pendant l'analyse des metadonnees - "
+                            "scan profond recommande."
+                        )
+                        return dedup_index, False, fs_name, 0
                     if _fs_pending:
                         self.files_batch_found.emit(list(_fs_pending))
                     self.status_text.emit(

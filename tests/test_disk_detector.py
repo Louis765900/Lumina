@@ -64,3 +64,10 @@ class TestDiskDetector:
         with patch("app.core.disk_detector.psutil.disk_partitions", side_effect=Exception):
             result = DiskDetector.list_disks()
             assert result == []
+
+    def test_no_physicaldrive0_fallback_when_no_partition_detected(self):
+        """No detected volume must not invent a default physical disk."""
+        with patch("app.core.disk_detector.psutil.disk_partitions", return_value=[]):
+            result = DiskDetector.list_disks()
+        assert result == []
+        assert all(d.get("device") != r"\\.\PhysicalDrive0" for d in result)

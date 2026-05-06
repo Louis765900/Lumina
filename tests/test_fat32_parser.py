@@ -10,10 +10,7 @@ import struct
 import tempfile
 from collections.abc import Callable
 
-import pytest
-
 from app.core.fs_parser import FAT32Parser, detect_fs
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -205,7 +202,6 @@ class TestFAT32ClusterMath:
         )
         try:
             cluster_size = bps * spc
-            fat_start = reserved * bps
             data_start = (reserved + num_fats * spf) * bps
             expected_offset = data_start + (5 - 2) * cluster_size
             assert parser._cluster_offset(5) == expected_offset

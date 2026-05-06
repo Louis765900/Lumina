@@ -6,15 +6,15 @@ Import pattern in screen modules:
 """
 
 # ── Win98 core ────────────────────────────────────────────────────────────────
-WIN98_SILVER  = "#C0C0C0"   # window surface / button face
+WIN98_SILVER  = "#E6E9EF"   # window surface / button face
 WIN98_WHITE   = "#FFFFFF"   # highlight edge (top/left bevel)
-WIN98_GRAY    = "#808080"   # shadow edge (bottom/right bevel)
-WIN98_DARK    = "#404040"   # darker shadow for deep recesses
-WIN98_BLACK   = "#000000"   # outer shadow / text
-WIN98_NAVY    = "#000080"   # title bar start, selection background
-WIN98_TEAL    = "#008080"   # desktop background
-WIN98_TITLE1  = "#000080"   # title bar gradient start
-WIN98_TITLE2  = "#1084D0"   # title bar gradient end
+WIN98_GRAY    = "#B7BEC9"   # shadow edge (bottom/right bevel)
+WIN98_DARK    = "#667085"   # darker shadow for deep recesses
+WIN98_BLACK   = "#111827"   # outer shadow / text
+WIN98_NAVY    = "#163F73"   # title bar start, selection background
+WIN98_TEAL    = "#DCE3EC"   # desktop background
+WIN98_TITLE1  = "#12396D"   # title bar gradient start
+WIN98_TITLE2  = "#1C6EAE"   # title bar gradient end
 
 # ── Backgrounds ───────────────────────────────────────────────────────────────
 BG      = WIN98_TEAL        # desktop canvas
@@ -28,23 +28,23 @@ BORDER  = WIN98_GRAY
 # ── Text ──────────────────────────────────────────────────────────────────────
 TEXT  = WIN98_BLACK
 TEXT2 = WIN98_BLACK
-SUB   = "#404040"
-MUTED = WIN98_GRAY
+SUB   = "#475467"
+MUTED = "#7B8494"
 
 # ── Accents ───────────────────────────────────────────────────────────────────
 ACCENT            = WIN98_NAVY
 ACCENT2           = WIN98_TITLE2
-ACCENT_HOVER      = "#000060"
+ACCENT_HOVER      = "#0F315B"
 ACCENT_SELECTION  = WIN98_NAVY
 
 # ── Status ────────────────────────────────────────────────────────────────────
-OK     = "#008000"
-OK_BG  = "#C0C0C0"
-WARN   = "#808000"
-ERR    = "#800000"
+OK     = "#16864C"
+OK_BG  = "#EAF7EF"
+WARN   = "#A15C00"
+ERR    = "#9F1D1D"
 
 # ── Interactive ───────────────────────────────────────────────────────────────
-HOVER   = "#D4D0C8"
+HOVER   = "#EDF3FA"
 HBORDER = WIN98_NAVY
 
 # ── Bevel helpers (for inline widget styles) ──────────────────────────────────

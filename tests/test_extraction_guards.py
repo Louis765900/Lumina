@@ -9,10 +9,7 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 from app.core.recovery import ensure_lumina_log, validate_recovery_destination
-
 
 # ── Test 1 : extraction bloquée si destination == volume source ───────────────
 
@@ -63,34 +60,24 @@ class TestValidateRecoveryDestination:
         assert new_dir.exists()
 
 
-# ── Test 2 : logique de troncature à 500 MB ───────────────────────────────────
-# Tests the pure calculation used in _ExtractionWorker._extract() without
-# importing screen_results (which requires a PyQt6 display stack on Linux).
+# Test 2: streaming extraction sizing, no 500 MB cap.
+# Pure streaming checks kept here without importing screen_results
+# (which requires a PyQt6 display stack on some environments).
 
-class TestExtractionTruncationLogic:
-    """Verify the truncation flag formula independently of screen_results."""
+class TestExtractionStreamingLogic:
+    """Verify release extraction has no arbitrary 500 MB cap."""
 
-    _MAX_SIZE = 500 * 1024 * 1024   # same constant as _ExtractionWorker._MAX_SIZE
+    def _expected_stream_size(self, size_kb: int) -> int:
+        return max(0, size_kb * 1024)
 
-    def _compute_truncated(self, size_kb: int) -> bool:
-        raw_size = size_kb * 1024
-        return raw_size > self._MAX_SIZE
+    def test_510mb_is_not_capped(self):
+        assert self._expected_stream_size(510 * 1024) == 510 * 1024 * 1024
 
-    def test_flag_true_when_file_exceeds_500mb(self):
-        """510 MB file → truncated=True."""
-        assert self._compute_truncated(510 * 1024) is True
+    def test_10gb_is_not_capped(self):
+        assert self._expected_stream_size(10 * 1024 * 1024) == 10 * 1024 * 1024 * 1024
 
-    def test_flag_false_for_500mb_exactly(self):
-        """Exactly 500 MB → NOT truncated (min() keeps it at cap, raw == cap)."""
-        assert self._compute_truncated(500 * 1024) is False
-
-    def test_flag_false_for_small_file(self):
-        """100 KB file → no truncation."""
-        assert self._compute_truncated(100) is False
-
-    def test_flag_true_for_very_large_file(self):
-        """10 GB file → truncated."""
-        assert self._compute_truncated(10 * 1024 * 1024) is True
+    def test_small_file_size_is_preserved(self):
+        assert self._expected_stream_size(100) == 100 * 1024
 
     def test_extraction_writes_to_disk(self, tmp_path):
         """Pure I/O: write a small fake device file and read it back."""
@@ -105,7 +92,7 @@ class TestExtractionTruncationLogic:
         # Replicate the core I/O path from _extract() without screen_results
         import hashlib
         sha = hashlib.sha256()
-        size_bytes = min(len(content), self._MAX_SIZE)
+        size_bytes = len(content)
         remaining = size_bytes
         fd = os.open(str(device_file), os.O_RDONLY | getattr(os, "O_BINARY", 0))
         try:

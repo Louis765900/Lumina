@@ -230,7 +230,7 @@ class TestRepairMp4(unittest.TestCase):
         path = self._write_temp(data)
         out_path = path + ".repaired.mp4"
         try:
-            report = repair_mp4(path, out_path)
+            repair_mp4(path, out_path)
             out_data = Path(out_path).read_bytes()
             out_atoms = _parse_atoms(out_data)
             self.assertEqual(out_atoms[0].type_, "ftyp")

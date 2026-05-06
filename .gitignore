@@ -57,5 +57,6 @@ stitch_results/
 
 # ── Claude Code local config ──────────────────────────────────────────────────
 .claude/
+AGENTS.md
 
 benchmarks/results/*.json

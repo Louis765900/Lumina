@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from app.core.version import DISPLAY_VERSION
 from app.ui.palette import (
     WIN98_NAVY as _NAVY,
 )
@@ -59,7 +60,7 @@ class _Win98CtrlBtn(QPushButton):
 
     def __init__(self, symbol: str, parent=None):
         super().__init__(symbol, parent)
-        self.setFixedSize(17, 15)
+        self.setFixedSize(22, 20)
         self.setCursor(Qt.CursorShape.ArrowCursor)
         self._update_style(False)
 
@@ -67,31 +68,24 @@ class _Win98CtrlBtn(QPushButton):
         if pressed:
             ss = (
                 "QPushButton {"
-                "  background-color: #C0C0C0;"
-                "  color: #000000;"
-                "  font-size: 9px; font-weight: 700;"
-                "  font-family: 'Work Sans', 'Arial';"
-                "  border-top: 2px solid #808080;"
-                "  border-left: 2px solid #808080;"
-                "  border-bottom: 2px solid #FFFFFF;"
-                "  border-right: 2px solid #FFFFFF;"
-                "  padding-top: 2px; padding-left: 2px;"
+                "  background-color: rgba(255, 255, 255, 0.20);"
+                "  color: #FFFFFF;"
+                "  font-size: 11px; font-weight: 700;"
+                "  font-family: 'Segoe UI', 'Arial';"
+                "  border: 1px solid rgba(255, 255, 255, 0.35);"
                 "}"
             )
         else:
             ss = (
                 "QPushButton {"
-                "  background-color: #C0C0C0;"
-                "  color: #000000;"
-                "  font-size: 9px; font-weight: 700;"
-                "  font-family: 'Work Sans', 'Arial';"
-                "  border-top: 2px solid #FFFFFF;"
-                "  border-left: 2px solid #FFFFFF;"
-                "  border-bottom: 2px solid #808080;"
-                "  border-right: 2px solid #808080;"
+                "  background-color: rgba(255, 255, 255, 0.12);"
+                "  color: #FFFFFF;"
+                "  font-size: 11px; font-weight: 700;"
+                "  font-family: 'Segoe UI', 'Arial';"
+                "  border: 1px solid rgba(255, 255, 255, 0.28);"
                 "}"
                 "QPushButton:hover {"
-                "  background-color: #D4D0C8;"
+                "  background-color: rgba(255, 255, 255, 0.22);"
                 "}"
             )
         self.setStyleSheet(ss)
@@ -118,16 +112,16 @@ class TitleBar(QWidget):
         self._drag_pos = None
         self._active   = True
 
-        self.setFixedHeight(20)
+        self.setFixedHeight(28)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         row = QHBoxLayout(self)
-        row.setContentsMargins(3, 2, 2, 2)
+        row.setContentsMargins(8, 3, 6, 3)
         row.setSpacing(0)
 
         # Icone 16x16
         self._icon_lbl = QLabel()
-        self._icon_lbl.setFixedSize(16, 16)
+        self._icon_lbl.setFixedSize(18, 18)
         self._icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._icon_lbl.setStyleSheet("background: transparent; font-size: 11px;")
         self._icon_lbl.setText("L")
@@ -135,10 +129,10 @@ class TitleBar(QWidget):
         row.addSpacing(4)
 
         # Titre
-        self._title_lbl = QLabel("Lumina Data Recovery")
+        self._title_lbl = QLabel(DISPLAY_VERSION)
         self._title_lbl.setStyleSheet(
-            "color: #FFFFFF; font-size: 11px; font-weight: 700;"
-            "font-family: 'Work Sans', 'Arial';"
+            "color: #FFFFFF; font-size: 12px; font-weight: 700;"
+            "font-family: 'Segoe UI', 'Arial';"
             "background: transparent;"
         )
         row.addWidget(self._title_lbl)
@@ -211,17 +205,20 @@ class NavItem(QWidget):
         self._idx    = idx
         self._active = False
 
-        self.setFixedHeight(22)
+        self.setFixedHeight(34)
         self.setCursor(Qt.CursorShape.ArrowCursor)
 
         row = QHBoxLayout(self)
-        row.setContentsMargins(16, 0, 8, 0)
-        row.setSpacing(6)
+        row.setContentsMargins(14, 0, 12, 0)
+        row.setSpacing(9)
 
         self._ico = QLabel(icon)
-        self._ico.setFixedWidth(16)
+        self._ico.setFixedWidth(44)
         self._ico.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._ico.setStyleSheet("font-size: 12px; background: transparent;")
+        self._ico.setStyleSheet(
+            "font-size: 9px; font-weight: 800; font-family: 'Segoe UI', 'Arial';"
+            "background: transparent;"
+        )
 
         self._lbl = QLabel(label)
         self._lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -238,26 +235,48 @@ class NavItem(QWidget):
         if self._active:
             self.setStyleSheet(
                 "NavItem {"
-                "  background-color: #000080;"
-                "  border: 0px;"
+                "  background-color: #DDE8F6;"
+                "  border-left: 4px solid #163F73;"
+                "  border-top: 1px solid #C9D5E8;"
+                "  border-bottom: 1px solid #C9D5E8;"
                 "}"
             )
             self._lbl.setStyleSheet(
-                "color: #FFFFFF; font-size: 11px; font-weight: 700;"
-                "font-family: 'Work Sans', 'Arial'; background: transparent;"
+                "color: #12396D; font-size: 12px; font-weight: 700;"
+                "font-family: 'Segoe UI', 'Arial'; background: transparent;"
             )
-            self._ico.setStyleSheet("font-size: 12px; color: #FFFFFF; background: transparent;")
+            self._ico.setStyleSheet(
+                "font-size: 9px; font-weight: 800; color: #12396D;"
+                "font-family: 'Segoe UI', 'Arial'; background: transparent;"
+            )
         else:
-            self.setStyleSheet("NavItem { background: transparent; border: 0px; }")
-            self._lbl.setStyleSheet(
-                "color: #000000; font-size: 11px; font-weight: 400;"
-                "font-family: 'Work Sans', 'Arial'; background: transparent;"
+            self.setStyleSheet(
+                "NavItem {"
+                "  background: transparent;"
+                "  border-left: 4px solid transparent;"
+                "  border-top: 1px solid transparent;"
+                "  border-bottom: 1px solid transparent;"
+                "}"
             )
-            self._ico.setStyleSheet("font-size: 12px; color: #000000; background: transparent;")
+            self._lbl.setStyleSheet(
+                "color: #243043; font-size: 12px; font-weight: 500;"
+                "font-family: 'Segoe UI', 'Arial'; background: transparent;"
+            )
+            self._ico.setStyleSheet(
+                "font-size: 9px; font-weight: 800; color: #667085;"
+                "font-family: 'Segoe UI', 'Arial'; background: transparent;"
+            )
 
     def enterEvent(self, e):
         if not self._active:
-            self.setStyleSheet("NavItem { background-color: #D4D0C8; border: 0px; }")
+            self.setStyleSheet(
+                "NavItem {"
+                "  background-color: #F8FAFC;"
+                "  border-left: 4px solid #B7BEC9;"
+                "  border-top: 1px solid #DEE4EC;"
+                "  border-bottom: 1px solid #DEE4EC;"
+                "}"
+            )
         super().enterEvent(e)
 
     def leaveEvent(self, e):
@@ -275,39 +294,39 @@ class Sidebar(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedWidth(180)
+        self.setFixedWidth(200)
         self.setStyleSheet(
             "Sidebar {"
-            "  background-color: #C0C0C0;"
-            "  border-right: 2px solid #808080;"
+            "  background-color: #F3F5F8;"
+            "  border-right: 1px solid #C4CAD4;"
             "}"
         )
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 4, 0, 4)
-        root.setSpacing(0)
+        root.setContentsMargins(0, 12, 0, 12)
+        root.setSpacing(4)
 
         self._items: list[NavItem] = []
 
         # Section Récupération
-        root.addWidget(self._section("Recuperation"))
+        root.addWidget(self._section("Récupération"))
         for icon, label, idx in [
-            ("💾", "Disques",      IDX_HOME),
-            ("💳", "Cartes SD",    IDX_SD),
+            ("Disque", "Disques",      IDX_HOME),
+            ("Carte", "Cartes SD",    IDX_SD),
         ]:
             item = NavItem(icon, label, idx)
             item.clicked.connect(self.nav_requested)
             self._items.append(item)
             root.addWidget(item)
 
-        root.addSpacing(8)
+        root.addSpacing(12)
 
         # Section Outils
         root.addWidget(self._section("Outils"))
         for icon, label, idx in [
-            ("⚙",  "Partitions",   IDX_PARTITIONS),
-            ("🔧", "Diagnostic",   IDX_REPAIR),
-            ("🛠",  "Outils avances", IDX_TOOLS),
+            ("Part.", "Partitions",   IDX_PARTITIONS),
+            ("Diag.", "Diagnostic",   IDX_REPAIR),
+            ("Outils", "Outils avancés", IDX_TOOLS),
         ]:
             item = NavItem(icon, label, idx)
             item.clicked.connect(self.nav_requested)
@@ -317,12 +336,15 @@ class Sidebar(QWidget):
         root.addStretch()
 
         # Version
-        ver = QLabel("Lumina v1.0.0")
+        ver = QLabel(DISPLAY_VERSION)
         ver.setStyleSheet(
-            "color: #808080; font-size: 10px;"
-            "font-family: 'Work Sans', 'Arial'; background: transparent;"
-            "padding: 2px 8px;"
+            "color: #475467; font-size: 11px; font-weight: 700;"
+            "font-family: 'Segoe UI', 'Arial';"
+            "background-color: #FFFFFF;"
+            "border: 1px solid #D0D5DD;"
+            "padding: 7px 10px;"
         )
+        ver.setContentsMargins(12, 0, 12, 0)
         root.addWidget(ver)
 
     @staticmethod
@@ -330,8 +352,9 @@ class Sidebar(QWidget):
         lbl = QLabel(title.upper())
         lbl.setContentsMargins(8, 4, 8, 2)
         lbl.setStyleSheet(
-            "color: #000080; font-size: 10px; font-weight: 700;"
-            "font-family: 'Work Sans', 'Arial'; background: transparent;"
+            "color: #163F73; font-size: 10px; font-weight: 800;"
+            "font-family: 'Segoe UI', 'Arial'; background: transparent;"
+            "letter-spacing: 0px;"
         )
         return lbl
 
@@ -408,12 +431,12 @@ class _ScanModeDialog(QDialog):
 
         self._quick_btn = self._make_mode_card(
             "Scan Rapide",
-            "Fichiers supprimes\nrecemment (MFT NTFS).\nDuree: 2-5 min.",
+            "Fichiers supprimés\nrécemment (MFT NTFS).\nDurée: 2-5 min.",
             active=False,
         )
         self._deep_btn = self._make_mode_card(
             "Scan Complet",
-            "Tous fichiers - photos,\nvideos, docs.\nAnalyse par signature.",
+            "Tous fichiers - photos,\nvidéos, docs.\nAnalyse par signature.",
             active=True,
         )
         self._quick_btn.clicked.connect(lambda: self._select("quick"))
@@ -436,7 +459,7 @@ class _ScanModeDialog(QDialog):
         note_lay = QHBoxLayout(note_frame)
         note_lay.setContentsMargins(6, 4, 6, 4)
         note = QLabel(
-            "Recommande: Scan Complet pour recuperer photos et videos perdues depuis longtemps."
+            "Recommandé: Scan complet pour récupérer photos et vidéos perdues depuis longtemps."
         )
         note.setWordWrap(True)
         note.setStyleSheet("font-size: 10px; color: #000000; background: transparent;")
@@ -452,7 +475,7 @@ class _ScanModeDialog(QDialog):
         cancel.setCursor(Qt.CursorShape.ArrowCursor)
         cancel.clicked.connect(self.reject)
 
-        start = QPushButton("Demarrer")
+        start = QPushButton("Démarrer")
         start.setFixedSize(80, 24)
         start.setCursor(Qt.CursorShape.ArrowCursor)
         start.clicked.connect(self.accept)
@@ -558,7 +581,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Lumina — Data Recovery")
+        self.setWindowTitle(f"{DISPLAY_VERSION} — Data Recovery")
         self.setMinimumSize(800, 560)
         self.resize(1040, 680)
 
@@ -570,17 +593,14 @@ class MainWindow(QMainWindow):
         central.setObjectName("LuminaCentral")
         central.setStyleSheet(
             "QWidget#LuminaCentral {"
-            "  background-color: #C0C0C0;"
-            "  border-top: 2px solid #FFFFFF;"
-            "  border-left: 2px solid #FFFFFF;"
-            "  border-bottom: 2px solid #808080;"
-            "  border-right: 2px solid #808080;"
+            "  background-color: #E6E9EF;"
+            "  border: 1px solid #AAB3C0;"
             "}"
         )
         self.setCentralWidget(central)
 
         root = QVBoxLayout(central)
-        root.setContentsMargins(2, 2, 2, 2)
+        root.setContentsMargins(1, 1, 1, 1)
         root.setSpacing(0)
 
         # Barre de titre
@@ -590,8 +610,8 @@ class MainWindow(QMainWindow):
         # Separateur sous titre
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setFixedHeight(2)
-        sep.setStyleSheet("background-color: #808080; border: 0px;")
+        sep.setFixedHeight(1)
+        sep.setStyleSheet("background-color: #B7BEC9; border: 0px;")
         root.addWidget(sep)
 
         # Corps : sidebar + contenu
@@ -606,27 +626,29 @@ class MainWindow(QMainWindow):
         # Separateur vertical
         vsep = QFrame()
         vsep.setFrameShape(QFrame.Shape.VLine)
-        vsep.setFixedWidth(2)
-        vsep.setStyleSheet("background-color: #808080; border: 0px;")
+        vsep.setFixedWidth(1)
+        vsep.setStyleSheet("background-color: #C4CAD4; border: 0px;")
         body.addWidget(vsep)
 
         self._stack = QStackedWidget()
-        self._stack.setStyleSheet("QStackedWidget { background-color: #C0C0C0; }")
+        self._stack.setStyleSheet("QStackedWidget { background-color: #E6E9EF; }")
         body.addWidget(self._stack, stretch=1)
 
         root.addLayout(body, stretch=1)
 
         # Barre de statut
         status_bar = QWidget()
-        status_bar.setFixedHeight(18)
-        status_bar.setStyleSheet("background-color: #C0C0C0; border-top: 1px solid #808080;")
+        status_bar.setFixedHeight(26)
+        status_bar.setStyleSheet(
+            "background-color: #FFFFFF; border-top: 1px solid #B7BEC9;"
+        )
         sb_row = QHBoxLayout(status_bar)
-        sb_row.setContentsMargins(4, 0, 4, 0)
+        sb_row.setContentsMargins(8, 0, 8, 0)
         sb_row.setSpacing(0)
-        self._status_lbl = QLabel("Pret")
+        self._status_lbl = QLabel("Prêt")
         self._status_lbl.setStyleSheet(
-            "color: #000000; font-size: 10px; background: transparent;"
-            "font-family: 'Work Sans', Arial;"
+            "color: #243043; font-size: 11px; font-weight: 600;"
+            "background: transparent; font-family: 'Segoe UI', Arial;"
         )
         sb_row.addWidget(self._status_lbl)
         sb_row.addStretch()
@@ -667,12 +689,12 @@ class MainWindow(QMainWindow):
         pix.fill(QColor(_NAVY))
         p = QPainter(pix)
         p.setPen(QColor("#FFFFFF"))
-        p.setFont(QFont("Work Sans", 16, QFont.Weight.Bold))
+        p.setFont(QFont("Segoe UI", 16, QFont.Weight.Bold))
         p.drawText(pix.rect(), Qt.AlignmentFlag.AlignCenter, "L")
         p.end()
 
         self._tray.setIcon(QIcon(pix))
-        self._tray.setToolTip("Lumina Data Recovery")
+        self._tray.setToolTip(f"{DISPLAY_VERSION} Data Recovery")
 
         menu = QMenu()
         restore_act = QAction("Restaurer", self)
@@ -706,8 +728,8 @@ class MainWindow(QMainWindow):
             self.hide()
             self._tray.showMessage(
                 "Lumina",
-                "Analyse en cours en arriere-plan. "
-                "Utilisez 'Quitter Lumina' dans la barre systeme pour arreter.",
+                "Analyse en cours en arrière-plan. "
+                "Utilisez 'Quitter Lumina' dans la barre système pour arrêter.",
                 QSystemTrayIcon.MessageIcon.Information,
                 4000,
             )
@@ -731,7 +753,7 @@ class MainWindow(QMainWindow):
 
     def show_home(self):
         self._sidebar.set_active(IDX_HOME)
-        self._status_lbl.setText("Pret")
+        self._status_lbl.setText("Prêt")
         if self._stack.currentIndex() == IDX_HOME:
             self._home.refresh_disks()
             return
@@ -755,7 +777,7 @@ class MainWindow(QMainWindow):
     def _go_results(self, files: list):
         self._results.load_results(files)
         self._sidebar.set_active(IDX_RESULTS)
-        self._status_lbl.setText(f"{len(files)} fichier(s) trouve(s)")
+        self._status_lbl.setText(f"{len(files)} fichier(s) trouvé(s)")
         self._fade_to(IDX_RESULTS)
 
     # ── Transition de fondu ───────────────────────────────────────────────────

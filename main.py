@@ -1,5 +1,5 @@
 """
-Lumina - Data Recovery v1.1.0
+Lumina - Data Recovery v2.0.0-rc1
 Point d'entrée : vérification des droits admin + bootstrap Qt.
 """
 
@@ -8,6 +8,7 @@ import sys
 import traceback
 
 from app.core.platform import is_admin, request_elevation
+from app.core.version import VERSION
 
 # ── Gestionnaire d'exception global ─────────────────────────────────────────
 
@@ -33,7 +34,7 @@ def main():
 
     app = QApplication(sys.argv)
     app.setApplicationName("Lumina")
-    app.setApplicationVersion("1.1.0")
+    app.setApplicationVersion(VERSION)
     app.setOrganizationName("Lumina Data Recovery")
     app.setQuitOnLastWindowClosed(False)
 

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import os
-import struct
 import tempfile
 import unittest
 from pathlib import Path
@@ -169,7 +168,7 @@ class TestRepairJpeg(unittest.TestCase):
         path = self._write_temp(data)
         out_path = path + ".repaired.jpg"
         try:
-            report = repair_jpeg(path, out_path)
+            repair_jpeg(path, out_path)
             repaired = Path(out_path).read_bytes()
             self.assertTrue(repaired.startswith(b"\xff\xd8"))
         finally:

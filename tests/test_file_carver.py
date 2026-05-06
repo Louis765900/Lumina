@@ -53,7 +53,7 @@ class TestConstants:
     def test_skip_on_err_is_one_megabyte(self):
         assert SKIP_ON_ERR == 1024 * 1024
 
-    def test_max_file_cap_is_500mb(self):
+    def test_scan_candidate_cap_is_500mb(self):
         assert MAX_FILE_CAP == 500 * 1024 * 1024
 
     def test_optimal_block_size_small_drive(self):
@@ -571,6 +571,24 @@ class TestFileCarverScan:
             # Should have been queried a small number of times, not for
             # every byte of a 4 MB buffer.
             assert calls["n"] <= 50
+        finally:
+            os.unlink(path)
+
+    def test_stop_flag_checked_while_processing_dense_candidates(self):
+        content = (b"BM" + b"\x00" * 30) * 4096
+        path = _temp_file(content)
+        try:
+            carver = FileCarver()
+            calls = {"n": 0}
+
+            def stop() -> bool:
+                calls["n"] += 1
+                return calls["n"] >= 3
+
+            found = carver.scan(path, stop_flag=stop, max_bytes=len(content))
+
+            assert found == []
+            assert calls["n"] >= 3
         finally:
             os.unlink(path)
 

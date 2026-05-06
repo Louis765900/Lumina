@@ -17,6 +17,7 @@ _extra_datas = [("app/ui/styles.qss", "app/ui")]
 
 # Plugin carvers discovered via pkgutil.iter_modules at runtime.
 _plugin_hiddenimports = collect_submodules("app.plugins")
+_module_hiddenimports = collect_submodules("app.modules")
 _plugin_datas = collect_data_files("app.plugins.carvers", include_py_files=True)
 _extra_datas.extend(_plugin_datas)
 
@@ -39,7 +40,7 @@ a = Analysis(
         "app.core.repair.jpeg_repair",
         "app.core.repair.mp4_repair",
         "app.cli.main",
-    ] + _plugin_hiddenimports,
+    ] + _plugin_hiddenimports + _module_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

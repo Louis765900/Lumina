@@ -22,6 +22,7 @@ def default_settings() -> dict[str, Any]:
         "language": "fr",
         "default_recovery_dir": _default_recovery_dir(),
         "scan_engine": "auto",
+        "modules": {},
         "prefer_image_first": True,
         "accepted_disclaimer": False,
         "first_launch_done": False,
@@ -69,6 +70,20 @@ def validate_settings(raw: Mapping[str, Any] | None) -> dict[str, Any]:
     scan_engine = raw.get("scan_engine")
     if isinstance(scan_engine, str) and scan_engine.strip().lower() in VALID_SCAN_ENGINES:
         settings["scan_engine"] = scan_engine.strip().lower()
+
+    modules = raw.get("modules")
+    if isinstance(modules, Mapping):
+        clean_modules: dict[str, Any] = {}
+        for module_id, value in modules.items():
+            if not isinstance(module_id, str):
+                continue
+            if isinstance(value, bool):
+                clean_modules[module_id] = value
+            elif isinstance(value, Mapping):
+                enabled = value.get("enabled")
+                if isinstance(enabled, bool):
+                    clean_modules[module_id] = {"enabled": enabled}
+        settings["modules"] = clean_modules
 
     prefer_image_first = raw.get("prefer_image_first")
     if isinstance(prefer_image_first, bool):

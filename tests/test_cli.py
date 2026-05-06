@@ -6,6 +6,7 @@ import os
 import tempfile
 import unittest
 from argparse import Namespace
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from app.cli.main import (
@@ -186,7 +187,7 @@ class TestEmitDfxml(unittest.TestCase):
             path = f.name
         try:
             _emit_dfxml(files, "C:", path)
-            content = open(path).read()
+            content = Path(path).read_text()
             # Check key structural elements are present
             self.assertIn("dfxml", content)
             self.assertIn("doc.pdf", content)
@@ -200,7 +201,7 @@ class TestEmitDfxml(unittest.TestCase):
             path = f.name
         try:
             _emit_dfxml(files, "/dev/sda", path)
-            content = open(path).read()
+            content = Path(path).read_text()
             self.assertIn("abc123", content)
         finally:
             os.unlink(path)
@@ -211,7 +212,7 @@ class TestEmitDfxml(unittest.TestCase):
             path = f.name
         try:
             _emit_dfxml(files, "/dev/sda", path)
-            content = open(path).read()
+            content = Path(path).read_text()
             self.assertIn("/dev/sda", content)
         finally:
             os.unlink(path)

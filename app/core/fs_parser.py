@@ -371,9 +371,13 @@ class NTFSParser(BaseFSParser):
         # ── Pass 2 — emit active files first (integrity 95), then deleted (80) ──
         found = 0
         all_entries = [(e, 95) for e in active] + [(e, 80) for e in deleted]
+        _log.debug("[NTFSParser] Pass 2 emitting %d MFT entries.", len(all_entries))
         for j, (entry, integrity) in enumerate(all_entries):
             if stop_flag():
-                _log.info("[NTFSParser] Scan cancelled during Pass 2.")
+                _log.debug(
+                    "[NTFSParser] Pass 2 cancelled by stop flag at entry %d/%d.",
+                    j, len(all_entries),
+                )
                 break
 
             path = _resolve_path(entry, dir_cache)
@@ -402,6 +406,7 @@ class NTFSParser(BaseFSParser):
             if j % 100 == 0:
                 progress_cb(50 + min(49, int(j * 49 / max(len(all_entries), 1))))
 
+        _log.debug("[NTFSParser] Pass 2 complete; finalizing progress.")
         progress_cb(100)
         _log.info(
             "[NTFSParser] MFT scan complete: %d active + %d deleted = %d files.",
@@ -1602,7 +1607,6 @@ class Ext4Parser(BaseFSParser):
                 offset = 40 + 12 + i * 12
                 if offset + 12 > len(inode_data):
                     break
-                ee_block = struct.unpack_from("<I", inode_data, offset)[0]
                 ee_len = struct.unpack_from("<H", inode_data, offset + 4)[0]
                 ee_start_hi = struct.unpack_from("<H", inode_data, offset + 6)[0]
                 ee_start_lo = struct.unpack_from("<I", inode_data, offset + 8)[0]
@@ -1691,7 +1695,7 @@ class Ext4Parser(BaseFSParser):
             else:
                 block_runs = self._block_pointers(inode_data)
 
-            for byte_off, byte_len in block_runs:
+            for byte_off, _byte_len in block_runs:
                 if stop_flag():
                     return count
                 block_num = byte_off // self._block_size

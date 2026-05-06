@@ -6,6 +6,7 @@ extraction vers un dossier choisi par l'utilisateur.
 
 import contextlib
 import datetime
+import errno
 import glob
 import hashlib
 import json
@@ -15,7 +16,7 @@ import threading
 import unicodedata
 import xml.etree.ElementTree as ET
 
-from PyQt6.QtCore import QRectF, Qt, QThread, pyqtSignal
+from PyQt6.QtCore import QRectF, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import (
     QAction,
     QColor,
@@ -44,22 +45,41 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.ui.palette import (
-    ACCENT as _ACCENT,
-    BEVEL_INSET_LIGHT as _BEVEL_INSET_LIGHT,
-    BEVEL_INSET_SHADOW as _BEVEL_INSET_SHADOW,
-    BEVEL_LIGHT as _BEVEL_LIGHT,
-    BEVEL_SHADOW as _BEVEL_SHADOW,
-    CARD as _CARD,
-    OK as _OK,
-    TEXT as _TEXT,
-    WARN as _WARN,
-)
 from app.core.recovery import (
     default_recovery_dir,
     ensure_lumina_log,
     persist_recovery_dir,
     validate_recovery_destination,
+)
+from app.core.version import DISPLAY_VERSION, VERSION
+from app.modules import is_module_enabled
+from app.modules.search_filters import FilterCriteria, apply_filters
+from app.ui.palette import (
+    ACCENT as _ACCENT,
+)
+from app.ui.palette import (
+    BEVEL_LIGHT as _BEVEL_LIGHT,
+)
+from app.ui.palette import (
+    BEVEL_SHADOW as _BEVEL_SHADOW,
+)
+from app.ui.palette import (
+    CARD as _CARD,
+)
+from app.ui.palette import (
+    HOVER as _HOVER,
+)
+from app.ui.palette import (
+    OK as _OK,
+)
+from app.ui.palette import (
+    SUB as _SUB,
+)
+from app.ui.palette import (
+    TEXT as _TEXT,
+)
+from app.ui.palette import (
+    WARN as _WARN,
 )
 
 _HISTORY_PATH = os.path.join(
@@ -71,6 +91,12 @@ _HISTORY_PATH = os.path.join(
 _log = logging.getLogger("lumina.recovery")
 ensure_lumina_log()
 _log.setLevel(logging.INFO)
+
+_PANEL = "#F8FAFC"
+_SURFACE = "#FFFFFF"
+_LINE = "#D0D5DD"
+_SOFT_BLUE = "#EAF2FB"
+_FONT = "'Segoe UI', Arial"
 
 # Couleurs de dégradé par type
 _THUMB_GRAD: dict[str, tuple[str, str]] = {
@@ -166,13 +192,15 @@ class FileThumb(QWidget):
     selection_changed = pyqtSignal(bool)
     detail_requested  = pyqtSignal(dict)
 
-    W, H = 140, 160
+    W, H = 156, 178
 
     def __init__(self, info: dict, parent=None):
         super().__init__(parent)
         self.info       = info
         self._selected  = False
 
+        self.setObjectName("FileThumb")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setFixedSize(self.W, self.H)
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._update_style()
@@ -183,30 +211,35 @@ class FileThumb(QWidget):
 
         # ── Miniature ─────────────────────────────────────────────────────────
         thumb_area = QWidget()
-        thumb_area.setFixedHeight(100)
+        thumb_area.setFixedHeight(106)
         thumb_area.setObjectName("ThumbArea")
+        thumb_area.setStyleSheet("background: transparent;")
         thumb_lay = QVBoxLayout(thumb_area)
         thumb_lay.setContentsMargins(0, 0, 0, 0)
 
         self._thumb = _GradientThumb(info.get("type", "???").upper())
-        self._thumb.setFixedSize(self.W, 100)
+        self._thumb.setFixedSize(self.W, 106)
         thumb_lay.addWidget(self._thumb)
         lay.addWidget(thumb_area)
 
         # ── Infos ─────────────────────────────────────────────────────────────
         info_area = QWidget()
-        info_area.setFixedHeight(60)
+        info_area.setFixedHeight(72)
+        info_area.setStyleSheet("background: transparent;")
         info_lay = QVBoxLayout(info_area)
-        info_lay.setContentsMargins(10, 8, 10, 8)
-        info_lay.setSpacing(2)
+        info_lay.setContentsMargins(12, 9, 12, 9)
+        info_lay.setSpacing(3)
 
-        name = info.get("name", "inconnu")
+        full_name = info.get("name", "inconnu")
+        name = full_name
         if len(name) > 18:
             name = name[:16] + "…"
         name_lbl = QLabel(name)
+        name_lbl.setToolTip(full_name)
+        self.setToolTip(full_name)
         name_lbl.setStyleSheet(
-            f"color: {_TEXT}; font-size: 10px; font-weight: 700;"
-            "font-family: 'Work Sans', Arial; background: transparent;"
+            f"color: {_TEXT}; font-size: 11px; font-weight: 800;"
+            f"font-family: {_FONT}; background: transparent;"
         )
 
         size_kb    = info.get("size_kb", 0)
@@ -216,8 +249,8 @@ class FileThumb(QWidget):
         int_lbl_str = _integrity_label(integrity)
         meta_lbl = QLabel(f"{size_str} {int_lbl_str}")
         meta_lbl.setStyleSheet(
-            f"color: {int_color}; font-size: 9px;"
-            "font-family: 'Work Sans', Arial; background: transparent;"
+            f"color: {int_color}; font-size: 10px; font-weight: 700;"
+            f"font-family: {_FONT}; background: transparent;"
         )
 
         info_lay.addWidget(name_lbl)
@@ -226,15 +259,16 @@ class FileThumb(QWidget):
 
         # ── Case à cocher ─────────────────────────────────────────────────────
         self._chk = QCheckBox(info_area)
-        self._chk.setGeometry(self.W - 20, 4, 16, 16)
+        self._chk.setGeometry(self.W - 24, 6, 18, 18)
         self._chk.setStyleSheet(
+            "QCheckBox { background: transparent; }"
             "QCheckBox::indicator {"
-            "  width: 13px; height: 13px;"
-            f"  background-color: {_BEVEL_LIGHT};"
-            f"  border-top: 2px solid {_BEVEL_SHADOW}; border-left: 2px solid {_BEVEL_SHADOW};"
-            f"  border-bottom: 2px solid {_BEVEL_LIGHT}; border-right: 2px solid {_BEVEL_LIGHT};"
+            "  width: 14px; height: 14px;"
+            f"  background-color: {_SURFACE};"
+            f"  border: 1px solid {_LINE};"
+            "  border-radius: 2px;"
             "}"
-            f"QCheckBox::indicator:checked { background-color: {_ACCENT}; }"
+            f"QCheckBox::indicator:checked {{ background-color: {_ACCENT}; border-color: {_ACCENT}; }}"
         )
         self._chk.stateChanged.connect(self._on_check)
 
@@ -242,13 +276,13 @@ class FileThumb(QWidget):
         if info.get("source") == "mft":
             fs_tag = info.get("fs", "MFT")
             badge = QLabel(fs_tag, thumb_area)
-            badge.setToolTip("Nom d'origine recupere depuis le systeme de fichiers")
+            badge.setToolTip("Nom d'origine récupéré depuis le système de fichiers")
             badge.setGeometry(2, 2, 36, 14)
             badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
             badge.setStyleSheet(
                 f"background-color: {_OK}; color: {_BEVEL_LIGHT};"
-                "font-size: 8px; font-weight: 700;"
-                "font-family: 'Work Sans', Arial;"
+                "font-size: 9px; font-weight: 800;"
+                f"font-family: {_FONT}; border-radius: 2px;"
             )
 
         # ── Badge statut supprime/actif ───────────────────────────────────────
@@ -259,7 +293,7 @@ class FileThumb(QWidget):
             del_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
             del_badge.setStyleSheet(
                 f"background-color: {_WARN}; color: {_BEVEL_LIGHT};"
-                "font-size: 8px; font-weight: 700; font-family: 'Work Sans', Arial;"
+                f"font-size: 9px; font-weight: 800; font-family: {_FONT}; border-radius: 2px;"
             )
         elif info.get("source") == "mft" and not info.get("deleted"):
             act_badge = QLabel("OK", thumb_area)
@@ -268,28 +302,24 @@ class FileThumb(QWidget):
             act_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
             act_badge.setStyleSheet(
                 f"background-color: {_OK}; color: {_BEVEL_LIGHT};"
-                "font-size: 8px; font-weight: 700; font-family: 'Work Sans', Arial;"
+                f"font-size: 9px; font-weight: 800; font-family: {_FONT}; border-radius: 2px;"
             )
 
     def _update_style(self):
         if self._selected:
             self.setStyleSheet(
-                "FileThumb {"
-                f"  background-color: {_ACCENT};"
-                f"  border-top: 2px solid {_BEVEL_SHADOW};"
-                f"  border-left: 2px solid {_BEVEL_SHADOW};"
-                f"  border-bottom: 2px solid {_BEVEL_LIGHT};"
-                f"  border-right: 2px solid {_BEVEL_LIGHT};"
+                "QWidget#FileThumb {"
+                f"  background-color: {_SOFT_BLUE};"
+                f"  border: 1px solid {_ACCENT};"
+                "  border-radius: 4px;"
                 "}"
             )
         else:
             self.setStyleSheet(
-                "FileThumb {"
-                f"  background-color: {_CARD};"
-                f"  border-top: 2px solid {_BEVEL_LIGHT};"
-                f"  border-left: 2px solid {_BEVEL_LIGHT};"
-                f"  border-bottom: 2px solid {_BEVEL_SHADOW};"
-                f"  border-right: 2px solid {_BEVEL_SHADOW};"
+                "QWidget#FileThumb {"
+                f"  background-color: {_SURFACE};"
+                f"  border: 1px solid {_LINE};"
+                "  border-radius: 4px;"
                 "}"
             )
 
@@ -346,12 +376,11 @@ class _GradientThumb(QWidget):
             y = (h - scaled.height()) // 2
             p.drawPixmap(x, y, scaled)
         else:
-            # Win98 flat tile: silver + navy type badge
-            p.fillRect(0, 0, w, h, QColor(f"{_CARD}"))
-            p.fillRect(0, h - 18, w, 18, QColor(f"{_ACCENT}"))
-            p.setFont(QFont("Work Sans", 8, QFont.Weight.Bold))
+            p.fillRect(0, 0, w, h, QColor("#F2F5F9"))
+            p.fillRect(0, h - 24, w, 24, QColor(f"{_ACCENT}"))
+            p.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
             p.setPen(QColor(f"{_BEVEL_LIGHT}"))
-            p.drawText(QRectF(0, h - 18, w, 18), Qt.AlignmentFlag.AlignCenter, self._ftype)
+            p.drawText(QRectF(0, h - 24, w, 24), Qt.AlignmentFlag.AlignCenter, self._ftype)
 
         p.end()
 
@@ -411,10 +440,10 @@ class _ThumbnailLoader(QThread):
 
 class _ExtractionWorker(QThread):
     progress = pyqtSignal(int, str)    # (n_done, current_name)
+    file_progress = pyqtSignal(int, str, int)  # (index, current_name, percent)
     finished = pyqtSignal(int, int)    # (n_ok, n_fail)
 
     _CHUNK    = 1 << 20                 # 1 MiB — balances RAM use and cancel latency
-    _MAX_SIZE = 500 * 1024 * 1024       # 500 Mo per-file cap
 
     def __init__(self, files: list[dict], dest: str, parent=None):
         super().__init__(parent)
@@ -433,8 +462,9 @@ class _ExtractionWorker(QThread):
                 break
             name = info.get("name", f"recovered_{i}")
             self.progress.emit(i, name)
+            self.file_progress.emit(i, name, 0)
             try:
-                self._extract(info)
+                self._extract(info, lambda pct, idx=i, n=name: self.file_progress.emit(idx, n, pct))
                 ok += 1
                 _log.info("Extracted: %s → %s", name, self._dest)
             except InterruptedError:
@@ -445,7 +475,30 @@ class _ExtractionWorker(QThread):
                 _log.warning("Extraction failed for %s: %s", name, exc)
         self.finished.emit(ok, fail)
 
-    def _extract(self, info: dict):
+    @staticmethod
+    def _partial_dest_path(dest_path: str) -> str:
+        root, ext = os.path.splitext(dest_path)
+        candidate = f"{root}_PARTIEL{ext}"
+        n = 2
+        while os.path.exists(candidate):
+            candidate = f"{root}_PARTIEL_{n}{ext}"
+            n += 1
+        return candidate
+
+    @classmethod
+    def _mark_partial(cls, info: dict, dest_path: str, written: int, expected: int, reason: str) -> str:
+        final_path = dest_path
+        if written > 0 and os.path.exists(dest_path):
+            final_path = cls._partial_dest_path(dest_path)
+            os.replace(dest_path, final_path)
+        info["partial"] = True
+        info["partial_reason"] = reason
+        info["extracted_name"] = os.path.basename(final_path)
+        info["extracted_size"] = written
+        info["expected_size"] = expected
+        return final_path
+
+    def _extract(self, info: dict, progress_cb=None):
         dest_path = os.path.join(self._dest, info.get("name", "recovered"))
 
         # Fichier simulé : pas de vraies données brutes disponibles
@@ -472,40 +525,69 @@ class _ExtractionWorker(QThread):
 
         # Convertir en chemin brut Windows si nécessaire
         dev = device.strip()
-        if len(dev) >= 2 and dev[1] == ":" and not dev.startswith("\\\\.\\"):
+        logical_drive = dev.rstrip("\\/")
+        if len(logical_drive) == 2 and logical_drive[1] == ":" and not dev.startswith("\\\\.\\"):
             dev = f"\\\\.\\{dev[0].upper()}:"
 
-        raw_size   = size_kb * 1024
-        size_bytes = min(raw_size, self._MAX_SIZE)
-        truncated  = raw_size > self._MAX_SIZE
+        raw_size = max(0, int(size_kb) * 1024)
 
         # Streaming read + incremental SHA-256 — single disk pass, bounded RAM.
         sha = hashlib.sha256()
-        remaining = size_bytes
+        remaining = raw_size
+        written = 0
+        cancelled = False
         fd = os.open(dev, os.O_RDONLY | getattr(os, "O_BINARY", 0))
         try:
             os.lseek(fd, offset, os.SEEK_SET)
-            with open(dest_path, "wb") as out:
-                while remaining > 0:
-                    if self._stop.is_set():
-                        raise InterruptedError("cancelled")
-                    chunk = os.read(fd, min(self._CHUNK, remaining))
-                    if not chunk:
-                        break
-                    out.write(chunk)
-                    sha.update(chunk)
-                    remaining -= len(chunk)
+            try:
+                with open(dest_path, "wb") as out:
+                    while remaining > 0:
+                        if self._stop.is_set():
+                            cancelled = True
+                            break
+                        chunk = os.read(fd, min(self._CHUNK, remaining))
+                        if not chunk:
+                            break
+                        out.write(chunk)
+                        sha.update(chunk)
+                        written += len(chunk)
+                        remaining -= len(chunk)
+                        if progress_cb and raw_size:
+                            progress_cb(min(100, int(written * 100 / raw_size)))
+            except OSError as exc:
+                reason = (
+                    "Espace insuffisant sur le disque de destination"
+                    if exc.errno == errno.ENOSPC
+                    else f"Erreur d'ecriture: {exc}"
+                )
+                self._mark_partial(info, dest_path, written, raw_size, reason)
+                raise
         finally:
             os.close(fd)
 
         info["sha256"]         = sha.hexdigest()
         info["extracted_name"] = os.path.basename(dest_path)
-        info["extracted_size"] = size_bytes - remaining
-        if truncated:
-            info["truncated"] = True
-            _log.warning(
-                "Extraction tronquée à 500 MB : %s", info.get("name", "?")
+        info["extracted_size"] = written
+        info["expected_size"]  = raw_size
+        if cancelled:
+            self._mark_partial(info, dest_path, written, raw_size, "Extraction annulee")
+            raise InterruptedError("cancelled")
+        if remaining > 0:
+            self._mark_partial(
+                info,
+                dest_path,
+                written,
+                raw_size,
+                "Source terminee avant la taille attendue",
             )
+            _log.warning(
+                "Extraction partielle: %s (%d/%d bytes)",
+                info.get("name", "?"),
+                written,
+                raw_size,
+            )
+        elif progress_cb:
+            progress_cb(100)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -606,7 +688,7 @@ class _FileDetailPanel(QWidget):
 
         # ── Barre d'integrite ─────────────────────────────────────────────────
         int_row = QHBoxLayout()
-        int_lbl = QLabel("Integrite:")
+        int_lbl = QLabel("Intégrité:")
         int_lbl.setStyleSheet(
             f"color: {_TEXT}; font-size: 10px; font-family: 'Work Sans', Arial; background: transparent;"
         )
@@ -628,7 +710,7 @@ class _FileDetailPanel(QWidget):
         root.addStretch()
 
         # ── Bouton Recuperer ──────────────────────────────────────────────────
-        self._recover_btn = QPushButton("Recuperer ce fichier")
+        self._recover_btn = QPushButton("Récupérer ce fichier")
         self._recover_btn.setFixedHeight(28)
         self._recover_btn.setCursor(Qt.CursorShape.ArrowCursor)
         self._recover_btn.clicked.connect(lambda: self.recover_requested.emit(self._info))
@@ -668,17 +750,17 @@ class _FileDetailPanel(QWidget):
             ("Taille",  size_str),
             ("Source",  device),
             ("Offset",  f"0x{offset:X}" if offset else "-"),
-            ("Mode",    "Simulation" if info.get("simulated") else "Reel"),
+            ("Mode",    "Simulation" if info.get("simulated") else "Réel"),
         ]
         if info.get("source") == "mft":
             deleted = info.get("deleted", False)
-            statut  = "Supprime" if deleted else "Actif"
+            statut  = "Supprimé" if deleted else "Actif"
             rows.append(("Statut",  statut))
             rows.append(("Origine", f"Nom d'origine ({info.get('fs', 'MFT')})"))
         if mft_path := info.get("mft_path"):
             rows.append(("Chemin",  mft_path))
         if fs_name := info.get("fs"):
-            rows.append(("Systeme", fs_name))
+            rows.append(("Système", fs_name))
         if (runs := info.get("data_runs")) and len(runs) > 1:
             rows.append(("Runs",    f"{len(runs)} fragments"))
 
@@ -744,6 +826,9 @@ class ResultsScreen(QWidget):
         self._hide_system    = False
         self._thumb_loader: _ThumbnailLoader | None = None
         self._displayed_count: int = 0
+        self._last_grid_cols: int = 0
+        self._search_filters_enabled = is_module_enabled("search-filters")
+        self._reporting_suite_enabled = is_module_enabled("reporting-suite")
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -751,24 +836,24 @@ class ResultsScreen(QWidget):
 
         # ── Barre d'en-tete Win98 ─────────────────────────────────────────────
         topbar = QWidget()
-        topbar.setFixedHeight(44)
+        topbar.setFixedHeight(62)
         topbar.setStyleSheet(
-            f"background-color: {_CARD};"
-            f"border-bottom: 2px solid {_BEVEL_SHADOW};"
+            f"background-color: {_PANEL};"
+            f"border-bottom: 1px solid {_LINE};"
         )
         tb = QHBoxLayout(topbar)
-        tb.setContentsMargins(8, 4, 8, 4)
-        tb.setSpacing(6)
+        tb.setContentsMargins(18, 10, 18, 10)
+        tb.setSpacing(10)
 
-        self._title_lbl = QLabel("Fichiers recuperables")
+        self._title_lbl = QLabel("Fichiers récupérables")
         self._title_lbl.setStyleSheet(
-            f"color: {_TEXT}; font-size: 12px; font-weight: 700;"
-            "font-family: 'Work Sans', Arial; background: transparent;"
+            f"color: {_TEXT}; font-size: 15px; font-weight: 800;"
+            f"font-family: {_FONT}; background: transparent;"
         )
         self._count_lbl = QLabel("")
         self._count_lbl.setStyleSheet(
-            "color: #404040; font-size: 10px;"
-            "font-family: 'Work Sans', Arial; background: transparent;"
+            f"color: {_SUB}; font-size: 12px;"
+            f"font-family: {_FONT}; background: transparent;"
         )
         tb.addWidget(self._title_lbl)
         tb.addSpacing(8)
@@ -778,13 +863,13 @@ class ResultsScreen(QWidget):
         # Barre de recherche
         self._search = QLineEdit()
         self._search.setPlaceholderText("Rechercher...")
-        self._search.setFixedSize(180, 24)
+        self._search.setFixedSize(220, 32)
         self._search.textChanged.connect(self._on_search)
         tb.addWidget(self._search)
 
         # Bouton "Exporter le rapport" avec menu HTML / DFXML
         export_btn = QPushButton("Rapport")
-        export_btn.setFixedSize(70, 24)
+        export_btn.setFixedSize(88, 32)
         export_btn.setCursor(Qt.CursorShape.ArrowCursor)
         export_btn.setStyleSheet(
             "QPushButton::menu-indicator { width: 0; image: none; }"
@@ -803,7 +888,7 @@ class ResultsScreen(QWidget):
 
         # Bouton "Nouveau scan"
         new_btn = QPushButton("Nouveau scan")
-        new_btn.setFixedSize(90, 24)
+        new_btn.setFixedSize(118, 32)
         new_btn.setCursor(Qt.CursorShape.ArrowCursor)
         new_btn.clicked.connect(self.new_scan_requested)
         tb.addWidget(new_btn)
@@ -812,29 +897,29 @@ class ResultsScreen(QWidget):
 
         # ── Filtres Win98 ─────────────────────────────────────────────────────
         filter_bar = QWidget()
-        filter_bar.setFixedHeight(34)
+        filter_bar.setFixedHeight(48)
         filter_bar.setStyleSheet(
-            f"background-color: {_CARD}; border-bottom: 1px solid {_BEVEL_SHADOW};"
+            f"background-color: {_CARD}; border-bottom: 1px solid {_LINE};"
         )
         fb = QHBoxLayout(filter_bar)
-        fb.setContentsMargins(6, 4, 6, 4)
-        fb.setSpacing(4)
+        fb.setContentsMargins(18, 8, 18, 8)
+        fb.setSpacing(6)
 
         self._filter_btns: dict[str, QPushButton] = {}
-        for label in ("Tous", "Images", "Videos", "Audio", "Documents", "Archives", "Autres"):
+        for label in ("Tous", "Images", "Vidéos", "Audio", "Documents", "Archives", "Autres"):
             btn = QPushButton(label)
-            btn.setFixedHeight(22)
+            btn.setFixedHeight(28)
             btn.setCursor(Qt.CursorShape.ArrowCursor)
             btn.clicked.connect(lambda _, lbl=label: self._set_filter(lbl))
             self._filter_btns[label] = btn
             fb.addWidget(btn)
 
         # Bouton masquer fichiers systeme
-        self._sys_toggle = QPushButton("Masq. systeme")
-        self._sys_toggle.setFixedHeight(22)
+        self._sys_toggle = QPushButton("Masq. système")
+        self._sys_toggle.setFixedHeight(28)
         self._sys_toggle.setCheckable(True)
         self._sys_toggle.setCursor(Qt.CursorShape.ArrowCursor)
-        self._sys_toggle.setToolTip("Masquer les fichiers systeme (EXE, DLL, SYS, TMP...)")
+        self._sys_toggle.setToolTip("Masquer les fichiers système (EXE, DLL, SYS, TMP...)")
         self._sys_toggle.clicked.connect(self._on_sys_toggle)
         fb.addWidget(self._sys_toggle)
 
@@ -843,27 +928,27 @@ class ResultsScreen(QWidget):
         # Tri
         sort_lbl = QLabel("Trier:")
         sort_lbl.setStyleSheet(
-            f"color: {_TEXT}; font-size: 10px; font-family: 'Work Sans', Arial; background: transparent;"
+            f"color: {_SUB}; font-size: 12px; font-family: {_FONT}; background: transparent;"
         )
         fb.addWidget(sort_lbl)
 
         self._sort_combo = QComboBox()
-        self._sort_combo.addItems(["Integrite", "Taille", "Nom A-Z", "Type"])
-        self._sort_combo.setFixedHeight(22)
-        self._sort_combo.setFixedWidth(90)
+        self._sort_combo.addItems(["Intégrité", "Taille", "Nom A-Z", "Type"])
+        self._sort_combo.setFixedHeight(28)
+        self._sort_combo.setFixedWidth(112)
         self._sort_combo.currentIndexChanged.connect(self._on_sort_changed)
         fb.addWidget(self._sort_combo)
         fb.addSpacing(8)
 
         # Selection / deselection
-        self._sel_all_btn = QPushButton("Tout selectionner")
-        self._sel_all_btn.setFixedHeight(22)
+        self._sel_all_btn = QPushButton("Tout sélectionner")
+        self._sel_all_btn.setFixedHeight(28)
         self._sel_all_btn.setCursor(Qt.CursorShape.ArrowCursor)
         self._sel_all_btn.clicked.connect(self._select_all)
         fb.addWidget(self._sel_all_btn)
 
-        self._recover_btn = QPushButton("Recuperer")
-        self._recover_btn.setFixedSize(80, 22)
+        self._recover_btn = QPushButton("Récupérer")
+        self._recover_btn.setFixedSize(96, 28)
         self._recover_btn.setCursor(Qt.CursorShape.ArrowCursor)
         self._recover_btn.clicked.connect(self._on_recover)
         self._recover_btn.setEnabled(False)
@@ -874,17 +959,18 @@ class ResultsScreen(QWidget):
 
         # ── Grille de resultats ───────────────────────────────────────────────
         scroll = QScrollArea()
+        self._grid_scroll = scroll
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setStyleSheet(
-            f"QScrollArea { background-color: {_BEVEL_LIGHT}; border: none; }"
+            f"QScrollArea {{ background-color: {_CARD}; border: none; }}"
         )
 
         self._grid_widget = QWidget()
-        self._grid_widget.setStyleSheet(f"background-color: {_BEVEL_LIGHT};")
+        self._grid_widget.setStyleSheet(f"background-color: {_CARD};")
         self._grid = QGridLayout(self._grid_widget)
-        self._grid.setContentsMargins(8, 8, 8, 8)
-        self._grid.setSpacing(6)
+        self._grid.setContentsMargins(18, 18, 18, 18)
+        self._grid.setSpacing(12)
         self._grid.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
         scroll.setWidget(self._grid_widget)
@@ -908,7 +994,7 @@ class ResultsScreen(QWidget):
         self._empty_lbl = QLabel("Aucun fichier trouve pour ce filtre.")
         self._empty_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty_lbl.setStyleSheet(
-            f"color: {_BEVEL_SHADOW}; font-size: 12px; background: transparent;"
+            f"color: {_SUB}; font-size: 13px; font-family: {_FONT}; background: transparent;"
         )
         self._empty_lbl.hide()
         root.addWidget(self._empty_lbl)
@@ -916,14 +1002,14 @@ class ResultsScreen(QWidget):
         # ── Bouton "Charger X fichiers de plus" ───────────────────────────────
         self._load_more_btn = QPushButton()
         self._load_more_btn.setCursor(Qt.CursorShape.ArrowCursor)
-        self._load_more_btn.setFixedHeight(28)
+        self._load_more_btn.setFixedHeight(34)
         self._load_more_btn.clicked.connect(self._load_more)
         self._load_more_btn.hide()
 
         load_more_wrap = QWidget()
         load_more_wrap.setStyleSheet(f"background-color: {_CARD};")
         load_more_lay = QHBoxLayout(load_more_wrap)
-        load_more_lay.setContentsMargins(8, 4, 8, 4)
+        load_more_lay.setContentsMargins(18, 8, 18, 10)
         load_more_lay.addStretch()
         load_more_lay.addWidget(self._load_more_btn)
         load_more_lay.addStretch()
@@ -997,9 +1083,9 @@ class ResultsScreen(QWidget):
         if checked:
             self._sys_toggle.setStyleSheet(
                 "QPushButton {"
-                f"  background-color: {_CARD}; color: #800000; font-weight: 700;"
-                f"  border-top: 2px solid {_BEVEL_SHADOW}; border-left: 2px solid {_BEVEL_SHADOW};"
-                f"  border-bottom: 2px solid {_BEVEL_LIGHT}; border-right: 2px solid {_BEVEL_LIGHT};"
+                f"  background-color: #FFF4E5; color: {_WARN}; font-weight: 800;"
+                f"  border: 1px solid {_WARN}; border-radius: 3px;"
+                f"  font-family: {_FONT}; font-size: 12px;"
                 "}"
             )
         else:
@@ -1047,27 +1133,34 @@ class ResultsScreen(QWidget):
                 btn.setStyleSheet(
                     "QPushButton {"
                     f"  background-color: {_ACCENT}; color: {_BEVEL_LIGHT};"
-                    f"  border-top: 2px solid {_BEVEL_SHADOW};"
-                    f"  border-left: 2px solid {_BEVEL_SHADOW};"
-                    f"  border-bottom: 2px solid {_BEVEL_LIGHT};"
-                    f"  border-right: 2px solid {_BEVEL_LIGHT};"
-                    "  font-size: 10px; font-weight: 700;"
+                    f"  border: 1px solid {_ACCENT}; border-radius: 3px;"
+                    f"  font-family: {_FONT}; font-size: 12px; font-weight: 800;"
                     "}"
                 )
             else:
                 btn.setStyleSheet(
                     "QPushButton {"
-                    f"  background-color: {_CARD}; color: {_TEXT};"
-                    f"  border-top: 2px solid {_BEVEL_LIGHT};"
-                    f"  border-left: 2px solid {_BEVEL_LIGHT};"
-                    f"  border-bottom: 2px solid {_BEVEL_SHADOW};"
-                    f"  border-right: 2px solid {_BEVEL_SHADOW};"
-                    "  font-size: 10px;"
+                    f"  background-color: {_SURFACE}; color: {_TEXT};"
+                    f"  border: 1px solid {_LINE}; border-radius: 3px;"
+                    f"  font-family: {_FONT}; font-size: 12px;"
                     "}"
-                    "QPushButton:hover { background-color: #D4D0C8; }"
+                    f"QPushButton:hover {{ background-color: {_HOVER}; }}"
                 )
 
     def _filtered_files(self) -> list[dict]:
+        if self._search_filters_enabled:
+            return apply_filters(
+                self._all_files,
+                FilterCriteria(
+                    query=self._search_text,
+                    group=self._active_filter,
+                    hide_system=self._hide_system,
+                    sort_key=self._sort_key,
+                ),
+                type_groups=_TYPE_GROUPS,
+                system_types=_SYSTEM_TYPES,
+            )
+
         result = []
         for f in self._all_files:
             ftype = f.get("type", "").upper()
@@ -1145,7 +1238,8 @@ class ResultsScreen(QWidget):
         to_display = visible[: self._displayed_count]
         reste = len(visible) - len(to_display)
 
-        cols = 6   # nombre de colonnes
+        cols = self._grid_column_count()
+        self._last_grid_cols = cols
         for i, info in enumerate(to_display):
             thumb = FileThumb(info)
             thumb.selection_changed.connect(self._on_selection_changed)
@@ -1180,6 +1274,21 @@ class ResultsScreen(QWidget):
             self._thumb_loader = _ThumbnailLoader(image_items)
             self._thumb_loader.ready.connect(self._on_thumb_ready)
             self._thumb_loader.start()
+
+    def _grid_column_count(self) -> int:
+        spacing = self._grid.spacing()
+        available = max(1, self._grid_scroll.viewport().width() - 36)
+        return max(1, min(6, available // (FileThumb.W + spacing)))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._all_files and self._grid_column_count() != self._last_grid_cols:
+            QTimer.singleShot(0, self._rebuild_grid)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._all_files:
+            QTimer.singleShot(0, self._rebuild_grid)
 
     def _load_more(self):
         """Charge une page supplémentaire de FileThumb."""
@@ -1228,6 +1337,25 @@ class ResultsScreen(QWidget):
             "Rapport HTML (*.html)",
         )
         if not path:
+            return
+
+        if self._reporting_suite_enabled:
+            from app.modules.reporting_suite import build_html_report
+
+            html = build_html_report(self._all_files)
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(html)
+
+            msg = QMessageBox(self)
+            msg.setWindowTitle("Rapport exporté")
+            msg.setIcon(QMessageBox.Icon.Information)
+            msg.setText("<b>Rapport enregistré avec succès.</b>")
+            msg.setInformativeText(path)
+            open_btn = msg.addButton("🌐  Ouvrir dans le navigateur", QMessageBox.ButtonRole.ActionRole)
+            msg.addButton("Fermer", QMessageBox.ButtonRole.RejectRole)
+            msg.exec()
+            if msg.clickedButton() == open_btn:
+                os.startfile(path)
             return
 
         # ── Comptages par catégorie ──────────────────────────────────────────
@@ -1312,7 +1440,7 @@ class ResultsScreen(QWidget):
     <tbody>{rows_html}</tbody>
   </table>
 
-  <p class="footer">Lumina v2.0 — Rapport généré automatiquement</p>
+  <p class="footer">{DISPLAY_VERSION} — Rapport généré automatiquement</p>
 </body>
 </html>"""
 
@@ -1355,6 +1483,25 @@ class ResultsScreen(QWidget):
         if not path:
             return
 
+        if self._reporting_suite_enabled:
+            from app.modules.reporting_suite import emit_dfxml
+
+            source = str(self._all_files[0].get("device", "—")) if self._all_files else "—"
+            emit_dfxml(self._all_files, source, path)
+            _log.info("DFXML report exported: %s (%d fileobjects)", path, len(self._all_files))
+
+            msg = QMessageBox(self)
+            msg.setWindowTitle("Rapport DFXML exporté")
+            msg.setIcon(QMessageBox.Icon.Information)
+            msg.setText(f"<b>{len(self._all_files)} fileobject(s) écrit(s).</b>")
+            msg.setInformativeText(path)
+            open_btn = msg.addButton("📂  Ouvrir le dossier", QMessageBox.ButtonRole.ActionRole)
+            msg.addButton("Fermer", QMessageBox.ButtonRole.RejectRole)
+            msg.exec()
+            if msg.clickedButton() == open_btn:
+                os.startfile(os.path.dirname(path))
+            return
+
         # ── Namespaces ──────────────────────────────────────────────────────
         ns_dfxml  = "http://www.forensicswiki.org/wiki/Category:Digital_Forensics_XML"
         ns_dc     = "http://purl.org/dc/elements/1.1/"
@@ -1374,12 +1521,12 @@ class ResultsScreen(QWidget):
 
         meta = ET.SubElement(root, dfxml("metadata"))
         ET.SubElement(meta, dc("type")).text    = "Disk Image Carving Report"
-        ET.SubElement(meta, dc("creator")).text = "Lumina v2.0"
+        ET.SubElement(meta, dc("creator")).text = DISPLAY_VERSION
         ET.SubElement(meta, dc("date")).text    = now_iso
 
         creator = ET.SubElement(root, dfxml("creator"))
         ET.SubElement(creator, dfxml("program")).text = "Lumina"
-        ET.SubElement(creator, dfxml("version")).text = "2.0"
+        ET.SubElement(creator, dfxml("version")).text = VERSION
         execenv = ET.SubElement(creator, dfxml("execution_environment"))
         ET.SubElement(execenv, dfxml("os_sysname")).text = "Windows"
         ET.SubElement(execenv, dfxml("start_time")).text = now_iso
@@ -1444,8 +1591,10 @@ class ResultsScreen(QWidget):
                 ET.SubElement(fo, lumina("mft_path")).text = mft_path
             if info.get("simulated"):
                 ET.SubElement(fo, lumina("simulated")).text = "true"
-            if info.get("truncated"):
-                ET.SubElement(fo, lumina("truncated")).text = "true"
+            if info.get("partial") or info.get("truncated"):
+                ET.SubElement(fo, lumina("partial")).text = "true"
+                if reason := info.get("partial_reason"):
+                    ET.SubElement(fo, lumina("partial_reason")).text = str(reason)
 
         # ── Serialize ───────────────────────────────────────────────────────
         ET.indent(root, space="  ")
@@ -1551,7 +1700,7 @@ class ResultsScreen(QWidget):
                 return
 
         prog = QProgressDialog(
-            "Extraction en cours…", "Annuler", 0, len(selected), self
+            "Extraction en cours…", "Annuler", 0, len(selected) * 100, self
         )
         prog.setWindowTitle("Lumina — Récupération")
         prog.setWindowModality(Qt.WindowModality.WindowModal)
@@ -1564,31 +1713,38 @@ class ResultsScreen(QWidget):
             if prog.wasCanceled():
                 self._ext_worker.stop()
                 return
-            prog.setValue(n)
+            prog.setValue(n * 100)
             prog.setLabelText(f"Extraction de {name}…")
+
+        def _on_file_prog(n, name, pct):
+            if prog.wasCanceled():
+                self._ext_worker.stop()
+                return
+            prog.setValue(min(len(selected) * 100, n * 100 + pct))
+            prog.setLabelText(f"Extraction de {name}… {pct}%")
 
         prog.canceled.connect(self._ext_worker.stop)
 
         def _on_done(ok, fail):
-            prog.setValue(len(selected))
+            prog.setValue(len(selected) * 100)
             prog.close()
             _log.info(
                 "extraction_finished destination=%s ok=%d fail=%d",
                 dest, ok, fail,
             )
-            # Warn about truncated files before the summary dialog
-            truncated_names = [
-                f.get("name", "?")
+            # Warn about partial files before the summary dialog.
+            partial_names = [
+                f"{f.get('extracted_name') or f.get('name', '?')} ({f.get('partial_reason', 'partiel')})"
                 for f in selected
-                if f.get("truncated")
+                if f.get("partial") or f.get("truncated")
             ]
-            if truncated_names:
-                names_txt = "\n".join(f"  • {n}" for n in truncated_names)
+            if partial_names:
+                names_txt = "\n".join(f"  - {n}" for n in partial_names)
                 QMessageBox.warning(
                     self,
-                    "Fichiers tronqués à 500 Mo",
-                    "Les fichiers suivants dépassaient 500 Mo et ont été "
-                    "tronqués lors de l'extraction :\n\n" + names_txt,
+                    "Fichiers récupérés partiellement",
+                    "Les fichiers suivants ne sont pas complets. Leur nom de "
+                    "sortie indique clairement qu'ils sont partiels :\n\n" + names_txt,
                 )
             msg = QMessageBox(self)
             msg.setWindowTitle("Récupération terminée")
@@ -1609,6 +1765,7 @@ class ResultsScreen(QWidget):
                 os.startfile(dest)
 
         self._ext_worker.progress.connect(_on_prog)
+        self._ext_worker.file_progress.connect(_on_file_prog)
         self._ext_worker.finished.connect(_on_done)
         self._ext_worker.start()
         prog.exec()

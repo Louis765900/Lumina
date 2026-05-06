@@ -32,7 +32,7 @@ _log = logging.getLogger("lumina.carver")
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 SKIP_ON_ERR  = 1024 * 1024   # Jump 1 MB ahead on any read error (protects dying disk)
-MAX_FILE_CAP = 500 * 1024 * 1024  # Hard cap on single-file extraction: 500 MB
+MAX_FILE_CAP = 500 * 1024 * 1024  # Scan-side cap for footerless carving candidates.
 
 # Size of the candidate window handed to `plugin.validate_mime()`.
 _MIME_WINDOW = 4096
@@ -638,10 +638,12 @@ class FileCarver:
             block_size  = _optimal_block_size(total_bytes)
             bytes_read  = 0
             overlap     = b""
+            cancelled   = False
 
             while True:
                 if stop_flag and stop_flag():
                     _log.info("Scan cancelled at offset %d.", bytes_read)
+                    cancelled = True
                     break
 
                 # ── Read one block ─────────────────────────────────────
@@ -667,13 +669,24 @@ class FileCarver:
 
                 if not block:
                     break
+                if stop_flag and stop_flag():
+                    _log.info("Scan cancelled after reading offset %d.", bytes_read)
+                    cancelled = True
+                    break
 
                 # offset_base BEFORE incrementing bytes_read
                 offset_base = bytes_read - len(overlap)
                 data = overlap + block
 
                 # ── Multi-pattern search (single pass over data) ───────
-                for m in self._pattern.finditer(data):
+                for match_index, m in enumerate(self._pattern.finditer(data)):
+                    if match_index % 64 == 0 and stop_flag and stop_flag():
+                        _log.info(
+                            "Scan cancelled while processing candidates near offset %d.",
+                            bytes_read,
+                        )
+                        cancelled = True
+                        break
                     header = m.group(0)
                     entry  = self._header_map.get(header)
                     if entry is None:
@@ -708,6 +721,9 @@ class FileCarver:
                     )
                     if file_found_cb:
                         file_found_cb(file_info)
+
+                if cancelled:
+                    break
 
                 # NOW increment bytes_read
                 bytes_read += len(block)

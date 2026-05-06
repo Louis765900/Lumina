@@ -10,10 +10,7 @@ import struct
 import tempfile
 from unittest.mock import patch
 
-import pytest
-
 from app.core.fs_parser import Ext4Parser, detect_fs
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -337,10 +334,6 @@ class TestExt4EnumerateFiles:
             inode = bytearray(256)
             struct.pack_into("<I", inode, 20, 1234567)  # i_dtime != 0 → deleted
             struct.pack_into("<H", inode, 26, 0)         # i_links_count = 0
-
-            info = parser._make_file_info.__func__(
-                parser, 100, "deleted.txt", "/deleted.txt"
-            ) if False else None
 
             # Instead, test the integrity logic directly
             i_dtime = struct.unpack_from("<I", inode, 20)[0]

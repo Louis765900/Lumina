@@ -5,7 +5,6 @@ Rapport S.M.A.R.T. fonctionnel ; autres outils prevus dans une future version.
 
 import logging
 import pathlib
-import subprocess
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -23,6 +22,13 @@ from PyQt6.QtWidgets import (
 )
 
 from app.core.recovery import ensure_lumina_log
+from app.modules import is_module_enabled
+from app.ui.palette import (
+    ACCENT as _ACCENT,
+)
+from app.ui.palette import (
+    CARD as _CARD,
+)
 from app.ui.palette import (
     ERR as _ERR,
 )
@@ -30,17 +36,29 @@ from app.ui.palette import (
     OK as _OK,
 )
 from app.ui.palette import (
+    SUB as _SUB,
+)
+from app.ui.palette import (
+    TEXT as _TEXT,
+)
+from app.ui.palette import (
     WARN as _WARN,
 )
+
+_PANEL = "#F8FAFC"
+_SURFACE = "#FFFFFF"
+_LINE = "#D0D5DD"
+_SOFT_BLUE = "#EAF2FB"
+_FONT = "'Segoe UI', Arial"
 
 # Outils — (title, desc, badge, available, detail, action_id|None)
 _TOOLS = [
     (
-        "Analyseur Hexadecimal",
+        "Analyseur hexadécimal",
         "Explorez le contenu brut de votre disque octet par octet.",
-        "Avance",
+        "Avancé",
         False,
-        "Ouvre une vue hexadecimale du disque selectionne.\n\n"
+        "Ouvre une vue hexadécimale du disque sélectionné.\n\n"
         "- Parcourez les secteurs bruts (512 o / 4096 o)\n"
         "- Recherchez des signatures de fichiers (magic bytes)\n"
         "- Identifiez les tables de partition MBR/GPT\n"
@@ -49,15 +67,15 @@ _TOOLS = [
     ),
     (
         "Rapport S.M.A.R.T.",
-        "Consultez les indicateurs de sante de votre disque dur.",
+        "Consultez les indicateurs de santé de votre disque dur.",
         "Diagnostic",
         True,
         "Lit les attributs S.M.A.R.T. directement depuis le firmware du disque.\n\n"
-        "- Etat general (OK / Degrade / Critique)\n"
-        "- Modele, numero de serie, revision firmware\n"
-        "- Interface (SATA, NVMe, USB...) et capacite\n"
-        "- Nombre de partitions et type de media\n"
-        "- Alerte predictive de panne imminente",
+        "- État général (OK / Dégradé / Critique)\n"
+        "- Modèle, numéro de série, révision firmware\n"
+        "- Interface (SATA, NVMe, USB...) et capacité\n"
+        "- Nombre de partitions et type de média\n"
+        "- Alerte prédictive de panne imminente",
         "launch_smart",
     ),
     (
@@ -65,74 +83,74 @@ _TOOLS = [
         "Supprimez lumina.log, l'historique et les rapports de scan.",
         "Maintenance",
         True,
-        "Purge complete des fichiers de log Lumina.\n\n"
+        "Purge complète des fichiers de log Lumina.\n\n"
         "- Vide logs/lumina.log\n"
-        "- Reinitialise logs/history.json a []\n"
+        "- Réinitialise logs/history.json à []\n"
         "- Supprime tous les logs/scan_*.json orphelins\n"
         "- Demande confirmation avant toute action",
         "purge_logs",
     ),
     (
-        "Reparation de fichiers",
+        "Réparation de fichiers",
         "Reconstruisez des JPEG ou MP4 corrompus.",
-        "Reparation",
+        "Réparation",
         True,
-        "Repare les fichiers media endommages dont les marqueurs sont absents "
-        "ou mal places.\n\n"
+        "Répare les fichiers média endommagés dont les marqueurs sont absents "
+        "ou mal placés.\n\n"
         "- JPEG : restauration des marqueurs SOI/EOI manquants\n"
-        "- JPEG : nettoyage des octets parasites avant le marqueur de debut\n"
-        "- JPEG : verification des longueurs de segment\n"
+        "- JPEG : nettoyage des octets parasites avant le marqueur de début\n"
+        "- JPEG : vérification des longueurs de segment\n"
         "- MP4/MOV : reordonnancement moov/mdat (fast-start)\n"
-        "- MP4/MOV : detection des atomes invalides ou tronques\n"
-        "- Diagnostic en lecture seule avant ecriture",
+        "- MP4/MOV : détection des atomes invalides ou tronqués\n"
+        "- Diagnostic en lecture seule avant écriture",
         "launch_repair",
     ),
     (
-        "Recuperation NAS",
-        "Recuperez des donnees depuis un NAS (RAID 0, 1, 5, 6).",
-        "Reseau",
+        "Récupération NAS",
+        "Récupérez des données depuis un NAS (RAID 0, 1, 5, 6).",
+        "Réseau",
         False,
-        "Reconstruit les volumes RAID logiciels pour acceder aux donnees.\n\n"
+        "Reconstruit les volumes RAID logiciels pour accéder aux données.\n\n"
         "- Supporte RAID 0, 1, 5, 6 et JBOD\n"
         "- Compatible Synology, QNAP, Netgear\n"
-        "- Recalcule la parite pour les matrices degradees\n"
-        "- Monte le volume virtuel pour une recuperation normale",
+        "- Recalcule la parité pour les matrices dégradées\n"
+        "- Monte le volume virtuel pour une récupération normale",
         None,
     ),
     (
-        "Recuperation Linux/macOS",
+        "Récupération Linux/macOS",
         "Lisez les partitions ext4, Btrfs, APFS et HFS+.",
         "Cross-OS",
         False,
-        "Accede aux systemes de fichiers non-Windows depuis Lumina.\n\n"
+        "Accède aux systèmes de fichiers non-Windows depuis Lumina.\n\n"
         "- Lecture ext2 / ext3 / ext4 (Linux)\n"
-        "- Lecture Btrfs avec support des instantanes\n"
+        "- Lecture Btrfs avec support des instantanés\n"
         "- Lecture APFS et HFS+ (macOS)\n"
-        "- Recuperation sur Time Machine et partitions Boot Camp",
+        "- Récupération sur Time Machine et partitions Boot Camp",
         None,
     ),
     (
-        "Recuperation chiffree",
-        "Recuperez des donnees sur des volumes BitLocker ou VeraCrypt.",
-        "Securite",
+        "Récupération chiffrée",
+        "Récupérez des données sur des volumes BitLocker ou VeraCrypt.",
+        "Sécurité",
         False,
-        "Dechiffre a la volee pour permettre la recuperation de fichiers.\n\n"
-        "- BitLocker (mot de passe ou cle de recuperation 48 chiffres)\n"
-        "- VeraCrypt (volume standard et volume cache)\n"
-        "- La cle n'est jamais stockee sur disque\n"
+        "Déchiffre à la volée pour permettre la récupération de fichiers.\n\n"
+        "- BitLocker (mot de passe ou clé de récupération 48 chiffres)\n"
+        "- VeraCrypt (volume standard et volume caché)\n"
+        "- La clé n'est jamais stockée sur disque\n"
         "- Compatible avec les disques partiellement corrompus",
         None,
     ),
     (
-        "Recuperation Cloud",
-        "Synchronisez et recuperez depuis OneDrive, Google Drive, etc.",
+        "Récupération Cloud",
+        "Synchronisez et récupérez depuis OneDrive, Google Drive, etc.",
         "Cloud",
         False,
-        "Restaure des fichiers supprimes ou ecrases depuis les services cloud.\n\n"
+        "Restaure des fichiers supprimés ou écrasés depuis les services cloud.\n\n"
         "- OneDrive, Google Drive, Dropbox, iCloud\n"
-        "- Accede a la corbeille et a l'historique de versions\n"
-        "- Telecharge directement vers un dossier local\n"
-        "- Fonctionne meme si le client de synchronisation est desinstalle",
+        "- Accède à la corbeille et à l'historique de versions\n"
+        "- Télécharge directement vers un dossier local\n"
+        "- Fonctionne même si le client de synchronisation est désinstallé",
         None,
     ),
 ]
@@ -193,40 +211,9 @@ class _SmartWorker(QThread):
 
     def run(self):
         try:
-            import json as _json
+            from app.modules.disk_health import collect_disk_health
 
-            ps_cmd = (
-                "Get-CimInstance Win32_DiskDrive | "
-                "Select-Object Caption,SerialNumber,Status,Size,"
-                "InterfaceType,MediaType,FirmwareRevision,Partitions | "
-                "ConvertTo-Json -Depth 2"
-            )
-            raw = subprocess.check_output(
-                ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                creationflags=subprocess.CREATE_NO_WINDOW,
-                timeout=20,
-            )
-            data = _json.loads(raw.strip())
-            if isinstance(data, dict):
-                data = [data]
-            disks = []
-            for d in data:
-                disks.append(
-                    {
-                        "Caption": str(d.get("Caption") or "—"),
-                        "SerialNumber": str(d.get("SerialNumber") or "—").strip(),
-                        "Status": str(d.get("Status") or "Unknown"),
-                        "Size": str(d.get("Size") or 0),
-                        "InterfaceType": str(d.get("InterfaceType") or "—"),
-                        "MediaType": str(d.get("MediaType") or "—"),
-                        "FirmwareRevision": str(d.get("FirmwareRevision") or "—").strip(),
-                        "Partitions": str(d.get("Partitions") or "—"),
-                    }
-                )
-            self.result.emit([d for d in disks if d.get("Caption") != "—"])
+            self.result.emit(collect_disk_health())
         except Exception as exc:
             self.error.emit(str(exc))
 
@@ -328,7 +315,7 @@ class _SmartDialog(QDialog):
         ban_lay.setContentsMargins(12, 8, 12, 8)
         ban_lay.setSpacing(12)
 
-        lbl_top = QLabel("ETAT S.M.A.R.T.")
+        lbl_top = QLabel("ÉTAT S.M.A.R.T.")
         lbl_top.setStyleSheet(
             "color: #808080; font-size: 10px; font-weight: 700; background: transparent;"
         )
@@ -341,7 +328,7 @@ class _SmartDialog(QDialog):
 
         predict = disk.get("PredictFailure", "")
         if predict and predict.upper() == "TRUE":
-            warn_lbl = QLabel("PANNE IMMINENTE PREDITE")
+            warn_lbl = QLabel("PANNE IMMINENTE PRÉDITE")
             warn_lbl.setStyleSheet(
                 f"color: {_ERR}; font-size: 11px; font-weight: 700; background: transparent;"
             )
@@ -354,12 +341,12 @@ class _SmartDialog(QDialog):
         size_str = f"{size_bytes / (1024**3):.1f} Go" if size_bytes else "—"
 
         props = [
-            ("Modele", disk.get("Caption", "—") or "—"),
-            ("Numero de serie", disk.get("SerialNumber", "—") or "—"),
+            ("Modèle", disk.get("Caption", "—") or "—"),
+            ("Numéro de série", disk.get("SerialNumber", "—") or "—"),
             ("Interface", disk.get("InterfaceType", "—") or "—"),
-            ("Capacite", size_str),
-            ("Type de media", disk.get("MediaType", "—") or "—"),
-            ("Revision firmware", disk.get("FirmwareRevision", "—") or "—"),
+            ("Capacité", size_str),
+            ("Type de média", disk.get("MediaType", "—") or "—"),
+            ("Révision firmware", disk.get("FirmwareRevision", "—") or "—"),
             ("Partitions", disk.get("Partitions", "—") or "—"),
         ]
 
@@ -423,41 +410,43 @@ class _ToolCard(QFrame):
         parent=None,
     ):
         super().__init__(parent)
-        self.setFixedHeight(72)
+        self.setObjectName("ToolCard")
+        self.setFixedHeight(84)
         self.setStyleSheet(
-            "_ToolCard {"
-            "  background-color: #C0C0C0;"
-            "  border-top: 2px solid #FFFFFF; border-left: 2px solid #FFFFFF;"
-            "  border-bottom: 2px solid #808080; border-right: 2px solid #808080;"
+            "QFrame#ToolCard {"
+            f"  background-color: {_SURFACE};"
+            f"  border: 1px solid {_LINE};"
+            "  border-radius: 4px;"
             "}"
         )
 
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(12, 10, 12, 10)
-        lay.setSpacing(12)
+        lay.setContentsMargins(16, 12, 14, 12)
+        lay.setSpacing(14)
 
         txt = QVBoxLayout()
         txt.setSpacing(4)
         t = QLabel(title)
         t.setStyleSheet(
-            "color: #000000; font-size: 12px; font-weight: 700;"
-            "font-family: 'Work Sans', Arial; background: transparent;"
+            f"color: {_TEXT}; font-size: 13px; font-weight: 800;"
+            f"font-family: {_FONT}; background: transparent;"
         )
         d = QLabel(desc)
         d.setStyleSheet(
-            "color: #404040; font-size: 11px;"
-            "font-family: 'Work Sans', Arial; background: transparent;"
+            f"color: {_SUB}; font-size: 12px;"
+            f"font-family: {_FONT}; background: transparent;"
         )
         txt.addWidget(t)
         txt.addWidget(d)
         lay.addLayout(txt, stretch=1)
 
         bdg = QLabel(badge)
-        bdg.setFixedHeight(18)
+        bdg.setFixedHeight(22)
         bdg.setStyleSheet(
-            "color: #FFFFFF; font-size: 9px; font-weight: 700;"
-            "background-color: #000080; padding: 0px 6px;"
-            "font-family: 'Work Sans', Arial;"
+            f"color: {_ACCENT}; font-size: 10px; font-weight: 800;"
+            f"background-color: {_SOFT_BLUE}; padding: 2px 8px;"
+            f"border: 1px solid {_LINE}; border-radius: 3px;"
+            f"font-family: {_FONT};"
         )
         lay.addWidget(bdg)
 
@@ -465,13 +454,17 @@ class _ToolCard(QFrame):
         info_btn.setFixedSize(22, 22)
         info_btn.setCursor(Qt.CursorShape.ArrowCursor)
         info_btn.setToolTip("En savoir plus")
+        info_btn.setStyleSheet(
+            f"color: {_ACCENT}; font-weight: 800; font-family: {_FONT};"
+            f"background-color: {_SOFT_BLUE}; border: 1px solid {_LINE};"
+        )
         info_btn.clicked.connect(
             lambda checked, ti=title, de=detail: _InfoDialog(ti, de, self).exec()
         )
         lay.addWidget(info_btn)
 
-        btn = QPushButton("Analyser" if available else "Bientot dispo")
-        btn.setFixedSize(100, 26)
+        btn = QPushButton("Analyser")
+        btn.setFixedSize(104, 32)
         btn.setCursor(Qt.CursorShape.ArrowCursor)
         if available:
             btn.clicked.connect(action)
@@ -499,7 +492,7 @@ _LOGS_DIR = pathlib.Path(__file__).parent.parent.parent / "logs"
 class ToolsScreen(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setStyleSheet("background-color: #C0C0C0;")
+        self.setStyleSheet(f"background-color: {_CARD};")
         self._smart_worker: _SmartWorker | None = None
 
         root = QVBoxLayout(self)
@@ -508,14 +501,16 @@ class ToolsScreen(QWidget):
 
         # En-tete
         hdr = QWidget()
-        hdr.setFixedHeight(40)
-        hdr.setStyleSheet("background-color: #C0C0C0; border-bottom: 2px solid #808080;")
+        hdr.setFixedHeight(62)
+        hdr.setStyleSheet(
+            f"background-color: {_PANEL}; border-bottom: 1px solid {_LINE};"
+        )
         hr = QHBoxLayout(hdr)
-        hr.setContentsMargins(8, 4, 8, 4)
-        title = QLabel("Outils avances")
+        hr.setContentsMargins(18, 10, 18, 10)
+        title = QLabel("Outils avancés")
         title.setStyleSheet(
-            "color: #000000; font-size: 12px; font-weight: 700;"
-            "font-family: 'Work Sans', Arial; background: transparent;"
+            f"color: {_TEXT}; font-size: 15px; font-weight: 800;"
+            f"font-family: {_FONT}; background: transparent;"
         )
         hr.addWidget(title)
         hr.addStretch()
@@ -525,33 +520,34 @@ class ToolsScreen(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setStyleSheet("QScrollArea { background-color: #C0C0C0; border: none; }")
+        scroll.setStyleSheet(f"QScrollArea {{ background-color: {_CARD}; border: none; }}")
 
         cw = QWidget()
-        cw.setStyleSheet("background-color: #C0C0C0;")
+        cw.setStyleSheet(f"background-color: {_CARD};")
         lay = QVBoxLayout(cw)
-        lay.setContentsMargins(12, 12, 12, 12)
-        lay.setSpacing(6)
+        lay.setContentsMargins(18, 16, 18, 18)
+        lay.setSpacing(8)
         lay.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         # Badge info
-        info_lbl = QLabel(
-            "Rapport S.M.A.R.T. et Effacer les logs disponibles  —  "
-            "Les autres fonctionnalites arrivent dans une prochaine version."
-        )
+        info_lbl = QLabel("Outils de maintenance et diagnostic disponibles pour Lumina V2 Windows.")
         info_lbl.setWordWrap(True)
         info_lbl.setStyleSheet(
-            "background-color: #FFFFFF; color: #000000; font-size: 11px;"
-            "padding: 6px 10px; font-family: 'Work Sans', Arial;"
-            "border-top: 2px solid #808080; border-left: 2px solid #808080;"
-            "border-bottom: 2px solid #FFFFFF; border-right: 2px solid #FFFFFF;"
+            f"background-color: {_SURFACE}; color: {_TEXT}; font-size: 12px;"
+            f"padding: 10px 12px; font-family: {_FONT};"
+            f"border: 1px solid {_LINE}; border-radius: 4px;"
         )
         lay.addWidget(info_lbl)
-        lay.addSpacing(6)
+        lay.addSpacing(4)
 
         for title_t, desc, badge, available, detail, action_id in _TOOLS:
+            effective_available = available
+            if action_id == "launch_smart":
+                effective_available = effective_available and is_module_enabled("disk-health")
+            if not effective_available:
+                continue
             action = getattr(self, f"_{action_id}", None) if action_id else None
-            lay.addWidget(_ToolCard(title_t, desc, badge, available, action, detail))
+            lay.addWidget(_ToolCard(title_t, desc, badge, effective_available, action, detail))
 
         lay.addStretch()
         scroll.setWidget(cw)
@@ -573,7 +569,7 @@ class ToolsScreen(QWidget):
             QMessageBox.warning(
                 self,
                 "S.M.A.R.T.",
-                "Aucun disque detecte via wmic.\n"
+                "Aucun disque détecté via le module disk-health.\n"
                 "Assurez-vous de lancer Lumina en tant qu'administrateur.",
             )
             return
@@ -584,7 +580,7 @@ class ToolsScreen(QWidget):
         QMessageBox.critical(
             self,
             "Erreur S.M.A.R.T.",
-            f"Impossible de lire les donnees disque :\n{msg}",
+            f"Impossible de lire les données disque :\n{msg}",
         )
 
     # ── Reparation de fichiers ─────────────────────────────────────────────
@@ -607,9 +603,9 @@ class ToolsScreen(QWidget):
             "Effacer les logs",
             f"Cette action supprimera :\n"
             f"  - lumina.log\n"
-            f"  - history.json (reinitialise a [])\n"
+            f"  - history.json (réinitialisé à [])\n"
             f"  - {len(scan_files)} rapport(s) scan_*.json\n\n"
-            "Cette operation est irreversible. Continuer ?",
+            "Cette opération est irréversible. Continuer ?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -643,14 +639,14 @@ class ToolsScreen(QWidget):
             QMessageBox.warning(
                 self,
                 "Purge partielle",
-                "Certains fichiers n'ont pas pu etre supprimes :\n\n" + "\n".join(errors),
+                "Certains fichiers n'ont pas pu être supprimés :\n\n" + "\n".join(errors),
             )
         else:
             QMessageBox.information(
                 self,
-                "Logs effaces",
-                f"Logs purges avec succes.\n"
+                "Logs effacés",
+                f"Logs purgés avec succès.\n"
                 f"  - lumina.log vide\n"
-                f"  - history.json reinitialise\n"
-                f"  - {deleted} rapport(s) scan supprime(s)",
+                f"  - history.json réinitialisé\n"
+                f"  - {deleted} rapport(s) scan supprimé(s)",
             )

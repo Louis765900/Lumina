@@ -1,0 +1,49 @@
+warning: in the working copy of '.github/workflows/build.yml', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.gitignore', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'MANUAL_TESTING.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/cli/main.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/core/file_carver.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/core/fs_parser.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/ui/main_window.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/ui/screen_home.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/ui/screen_partitions.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/ui/screen_repair.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/ui/screen_results.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/ui/screen_scan.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/ui/screen_sd_card.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/ui/screen_tools.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/workers/scan_worker.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lumina.spec', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'main.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'pyproject.toml', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'scripts/build.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/test_disk_detector.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/test_extraction_guards.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/test_file_carver.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/test_product_real_app.py', LF will be replaced by CRLF the next time Git touches it
+ .github/workflows/build.yml     |  78 [32m++[m[31m----------[m
+ .gitignore                      |   1 [32m+[m
+ MANUAL_TESTING.md               |   2 [32m+[m[31m-[m
+ README.md                       |  47 [32m+++[m[31m----[m
+ app/cli/main.py                 |   4 [32m+[m[31m-[m
+ app/core/file_carver.py         |  20 [32m++[m[31m-[m
+ app/core/fs_parser.py           |   7 [32m+[m[31m-[m
+ app/ui/main_window.py           |   9 [32m+[m[31m-[m
+ app/ui/screen_home.py           |  80 [32m++++++++++[m[31m--[m
+ app/ui/screen_partitions.py     |  61 [31m---------[m
+ app/ui/screen_repair.py         |  28 [32m++++[m[31m-[m
+ app/ui/screen_results.py        | 171 [32m++++++++++++++++++[m[31m-------[m
+ app/ui/screen_scan.py           | 269 [32m++++++++++++++++++++++++[m[31m----------------[m
+ app/ui/screen_sd_card.py        |  40 [32m++++[m[31m--[m
+ app/ui/screen_tools.py          |   9 [32m+[m[31m-[m
+ app/workers/scan_worker.py      |  38 [32m++++[m[31m--[m
+ lumina.spec                     |  18 [32m++[m[31m-[m
+ main.py                         |   5 [32m+[m[31m-[m
+ pyproject.toml                  |   4 [32m+[m[31m-[m
+ scripts/build.py                | 102 [32m+++++++++++[m[31m----[m
+ tests/test_disk_detector.py     |   7 [32m++[m
+ tests/test_extraction_guards.py |  38 [32m+++[m[31m---[m
+ tests/test_file_carver.py       |  20 [32m++[m[31m-[m
+ tests/test_product_real_app.py  | 132 [32m+++++++++++++++++++[m[31m-[m
+ 24 files changed, 767 insertions(+), 423 deletions(-)

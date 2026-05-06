@@ -4,6 +4,7 @@ Lumina CLI — scriptable data recovery interface.
 Usage:
     lumina scan <source> [options]
     lumina list-disks [--format json|table]
+    lumina modules [--format json|table]
     lumina recover <source> --files <report.json> --output <dir>
     lumina info <source>
     lumina version
@@ -17,7 +18,6 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
-import csv
 import hashlib
 import json
 import logging
@@ -25,12 +25,11 @@ import os
 import signal
 import sys
 import threading
-import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
-_VERSION = "1.0.0"
+from app.core.version import VERSION
+
+_VERSION = VERSION
 _log = logging.getLogger("lumina.cli")
 _stop_event = threading.Event()
 
@@ -41,7 +40,7 @@ def _setup_logging(verbose: bool, quiet: bool) -> None:
                         format="%(levelname)s %(name)s: %(message)s")
 
 
-def _handle_sigint(signum: int, frame: Any) -> None:  # noqa: ARG001
+def _handle_sigint(signum: int, frame: Any) -> None:
     _stop_event.set()
 
 
@@ -68,7 +67,7 @@ def cmd_list_disks(args: argparse.Namespace) -> int:
 # ── info ─────────────────────────────────────────────────────────────────────
 
 def cmd_info(args: argparse.Namespace) -> int:
-    from app.core.platform import to_raw_device, PLATFORM
+    from app.core.platform import PLATFORM, to_raw_device
     source = args.source
     raw = to_raw_device(source) if PLATFORM == "win32" else source
     print(f"Source : {source}")
@@ -101,73 +100,63 @@ def cmd_info(args: argparse.Namespace) -> int:
 
 # ── version ───────────────────────────────────────────────────────────────────
 
-def cmd_version(args: argparse.Namespace) -> int:  # noqa: ARG001
+def cmd_version(args: argparse.Namespace) -> int:
     print(f"Lumina v{_VERSION}")
+    return 0
+
+
+def cmd_modules(args: argparse.Namespace) -> int:
+    from app.modules import get_module_registry
+
+    registry = get_module_registry()
+    rows = [
+        {
+            "id": manifest.module_id,
+            "status": manifest.status,
+            "enabled": registry.is_enabled(manifest.module_id),
+            "priority": manifest.priority,
+            "pyinstaller_safe": manifest.pyinstaller_safe,
+            "windows_v2_safe": manifest.windows_v2_safe,
+        }
+        for manifest in registry.manifests()
+    ]
+    if args.format == "json":
+        print(json.dumps(rows, indent=2))
+    else:
+        header = f"{'Module':<26} {'Status':<12} {'Enabled':<8} {'Priority':<8}"
+        print(header)
+        print("-" * len(header))
+        for row in rows:
+            priority = "-" if row["priority"] is None else str(row["priority"])
+            enabled = "yes" if row["enabled"] else "no"
+            print(f"{row['id']:<26} {row['status']:<12} {enabled:<8} {priority:<8}")
     return 0
 
 
 # ── Report formatters ─────────────────────────────────────────────────────────
 
 def _emit_json(files: list[dict], output_file: str | None) -> None:
-    data = json.dumps(files, indent=2, default=str)
-    if output_file:
-        Path(output_file).write_text(data, encoding="utf-8")
-    else:
-        print(data)
+    from app.modules.reporting_suite import emit_json
+
+    emit_json(files, output_file)
 
 
 def _emit_jsonl(file_info: dict) -> None:
-    print(json.dumps(file_info, default=str))
+    from app.modules.reporting_suite import emit_jsonl
+
+    emit_jsonl(file_info)
 
 
 def _emit_dfxml(files: list[dict], source: str, output_file: str | None) -> None:
-    ns = "http://www.forensicswiki.org/wiki/Category:Digital_Forensics_XML"
-    ET.register_namespace("", ns)
-    root = ET.Element(f"{{{ns}}}dfxml")
-    root.set("version", "1.2.0")
-    meta = ET.SubElement(root, f"{{{ns}}}metadata")
-    ET.SubElement(meta, f"{{{ns}}}dc:title").text = "Lumina Recovery Report"
-    src = ET.SubElement(root, f"{{{ns}}}source")
-    ET.SubElement(src, f"{{{ns}}}device").text = source
-    ET.SubElement(src, f"{{{ns}}}acquisition_date").text = datetime.now(timezone.utc).isoformat()
-    for fi in files:
-        fobj = ET.SubElement(root, f"{{{ns}}}fileobject")
-        ET.SubElement(fobj, f"{{{ns}}}filename").text = fi.get("name", "")
-        ET.SubElement(fobj, f"{{{ns}}}filesize").text = str(fi.get("size_kb", 0) * 1024)
-        br = ET.SubElement(fobj, f"{{{ns}}}byte_runs")
-        run = ET.SubElement(br, f"{{{ns}}}byte_run")
-        run.set("img_offset", str(fi.get("offset", 0)))
-        run.set("len", str(fi.get("size_kb", 0) * 1024))
-        if fi.get("sha256"):
-            h = ET.SubElement(fobj, f"{{{ns}}}hashdigest")
-            h.set("type", "sha256")
-            h.text = fi["sha256"]
-    tree = ET.ElementTree(root)
-    ET.indent(tree, space="  ")
-    if output_file:
-        tree.write(output_file, encoding="unicode", xml_declaration=True)
-    else:
-        import io
-        buf = io.StringIO()
-        tree.write(buf, encoding="unicode", xml_declaration=True)
-        print(buf.getvalue())
+    from app.modules.reporting_suite import emit_dfxml
+
+    emit_dfxml(files, source, output_file)
 
 
 def _emit_csv(files: list[dict], output_file: str | None) -> None:
-    fields = ["name", "type", "offset", "size_kb", "integrity", "device", "source", "fs"]
-    if output_file:
-        fh = open(output_file, "w", newline="", encoding="utf-8")
-        close = True
-    else:
-        fh = sys.stdout  # type: ignore[assignment]
-        close = False
-    try:
-        writer = csv.DictWriter(fh, fieldnames=fields, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(files)
-    finally:
-        if close:
-            fh.close()
+    from app.modules.reporting_suite import emit_csv
+
+    emit_csv(files, output_file)
 
 
 # ── scan ─────────────────────────────────────────────────────────────────────
@@ -187,14 +176,25 @@ def _run_scan_sync(
     Run a synchronous (non-Qt) scan. Returns (files, was_interrupted).
     Uses FileCarver + fs_parser directly, bypassing ScanWorker/QThread.
     """
+    from app.core.dedup import _DedupIndex
     from app.core.file_carver import FileCarver
     from app.core.fs_parser import detect_fs
-    from app.core.platform import to_raw_device, PLATFORM
-    from app.core.dedup import _DedupIndex
+    from app.core.platform import PLATFORM, to_raw_device
+    from app.modules import get_module_registry
+    from app.modules.search_filters import FilterCriteria, matches_file
 
     raw = to_raw_device(source) if PLATFORM == "win32" else source
     files: list[dict] = []
     was_interrupted = False
+    registry = get_module_registry()
+    integrity_score_enabled = registry.is_enabled("integrity-score")
+    storage_index_enabled = registry.is_enabled("storage-index")
+    search_filters_enabled = registry.is_enabled("search-filters")
+    criteria = FilterCriteria(
+        types=frozenset(types_filter or ()),
+        min_size_kb=min_size_kb,
+        max_size_kb=max_size_kb,
+    )
 
     def _stop() -> bool:
         return _stop_event.is_set()
@@ -204,14 +204,21 @@ def _run_scan_sync(
             print(f"\r[{pct:3d}%] Scanning...", end="", file=sys.stderr, flush=True)
 
     def _file_found(fi: dict) -> None:
-        # Apply filters
-        if types_filter and fi.get("type", "").upper() not in types_filter:
-            return
-        sz = fi.get("size_kb", 0)
-        if sz < min_size_kb:
-            return
-        if max_size_kb is not None and sz > max_size_kb:
-            return
+        if integrity_score_enabled:
+            from app.modules.integrity_score import enrich_file
+
+            fi = enrich_file(fi)
+        if search_filters_enabled:
+            if not matches_file(fi, criteria):
+                return
+        else:
+            if types_filter and fi.get("type", "").upper() not in types_filter:
+                return
+            sz = fi.get("size_kb", 0)
+            if sz < min_size_kb:
+                return
+            if max_size_kb is not None and sz > max_size_kb:
+                return
         if jsonl_streaming:
             _emit_jsonl(fi)
         files.append(fi)
@@ -248,10 +255,10 @@ def _run_scan_sync(
             carver = FileCarver()
             dedup_check = dedup.overlaps if fs_ok else None
             carver.scan(
-                raw_dev=raw,
+                raw,
                 progress_cb=lambda p: _progress(20 + p * 80 // 100),
                 file_found_cb=_file_found,
-                stop_flag=_stop_event,
+                stop_flag=_stop,
                 dedup_check=dedup_check,
             )
     except KeyboardInterrupt:
@@ -264,6 +271,11 @@ def _run_scan_sync(
     if progress and not quiet:
         print(file=sys.stderr)  # newline after progress
 
+    if storage_index_enabled and files:
+        from app.modules.storage_index import index_scan_results
+
+        index_scan_results(files, source=source)
+
     return files, was_interrupted or _stop_event.is_set()
 
 
@@ -271,7 +283,7 @@ def _recover_files(
     files: list[dict], output_dir: str, compute_hash: bool, source: str
 ) -> list[dict]:
     """Extract files to output_dir. Returns list of successfully recovered file_infos."""
-    from app.core.platform import to_raw_device, PLATFORM
+    from app.core.platform import PLATFORM, to_raw_device
 
     os.makedirs(output_dir, exist_ok=True)
     raw = to_raw_device(source) if PLATFORM == "win32" else source
@@ -410,6 +422,10 @@ def build_parser() -> argparse.ArgumentParser:
     pl = sub.add_parser("list-disks", help="List available disks")
     pl.add_argument("--format", choices=["json", "table"], default="table")
 
+    # modules
+    pm = sub.add_parser("modules", help="List optional Lumina modules")
+    pm.add_argument("--format", choices=["json", "table"], default="table")
+
     # recover
     pr = sub.add_parser("recover", help="Recover files from a previous scan report")
     pr.add_argument("source", help="Device or image path")
@@ -439,6 +455,7 @@ def main() -> None:
     dispatch = {
         "scan": cmd_scan,
         "list-disks": cmd_list_disks,
+        "modules": cmd_modules,
         "recover": cmd_recover,
         "info": cmd_info,
         "version": cmd_version,
@@ -452,7 +469,7 @@ def main() -> None:
         code = fn(args)
     except SystemExit:
         raise
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"Fatal error: {exc}", file=sys.stderr)
         _log.exception("CLI fatal error")
         code = 1

@@ -17,14 +17,32 @@ from PyQt6.QtWidgets import (
 )
 
 from app.ui.palette import (
+    ACCENT as _ACCENT,
+)
+from app.ui.palette import (
+    CARD as _CARD,
+)
+from app.ui.palette import (
     ERR as _ERR,
 )
 from app.ui.palette import (
     OK as _OK,
 )
 from app.ui.palette import (
+    SUB as _SUB,
+)
+from app.ui.palette import (
+    TEXT as _TEXT,
+)
+from app.ui.palette import (
     WARN as _WARN,
 )
+
+_PANEL = "#F8FAFC"
+_SURFACE = "#FFFFFF"
+_LINE = "#D0D5DD"
+_SOFT_BLUE = "#EAF2FB"
+_FONT = "'Segoe UI', Arial"
 
 
 def _fmt_gb(n_bytes: int) -> str:
@@ -33,15 +51,15 @@ def _fmt_gb(n_bytes: int) -> str:
 
 def _section_hdr(title: str) -> QWidget:
     w = QWidget()
-    w.setFixedHeight(24)
-    w.setStyleSheet("background-color: #C0C0C0;")
+    w.setFixedHeight(30)
+    w.setStyleSheet(f"background-color: {_CARD};")
     row = QHBoxLayout(w)
     row.setContentsMargins(0, 4, 0, 0)
     row.setSpacing(8)
     lbl = QLabel(title.upper())
     lbl.setStyleSheet(
-        "color: #000000; font-size: 10px; font-weight: 700;"
-        "font-family: 'Work Sans', Arial; background: transparent;"
+        f"color: {_ACCENT}; font-size: 12px; font-weight: 800;"
+        f"font-family: {_FONT}; background: transparent;"
     )
     row.addWidget(lbl)
     row.addStretch()
@@ -55,12 +73,13 @@ def _section_hdr(title: str) -> QWidget:
 class _PartRow(QFrame):
     def __init__(self, part, parent=None):
         super().__init__(parent)
-        self.setFixedHeight(60)
+        self.setObjectName("PartRow")
+        self.setFixedHeight(68)
         self.setStyleSheet(
-            "_PartRow {"
-            "  background-color: #C0C0C0;"
-            "  border-top: 2px solid #FFFFFF; border-left: 2px solid #FFFFFF;"
-            "  border-bottom: 2px solid #808080; border-right: 2px solid #808080;"
+            "QFrame#PartRow {"
+            f"  background-color: {_SURFACE};"
+            f"  border: 1px solid {_LINE};"
+            "  border-radius: 4px;"
             "}"
         )
         lay = QHBoxLayout(self)
@@ -73,8 +92,9 @@ class _PartRow(QFrame):
         badge.setFixedSize(28, 16)
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         badge.setStyleSheet(
-            "background-color: #000080; color: #FFFFFF;"
-            "font-size: 9px; font-weight: 700; font-family: 'Work Sans', Arial;"
+            f"background-color: {_SOFT_BLUE}; color: {_ACCENT};"
+            f"border: 1px solid {_LINE}; border-radius: 3px;"
+            f"font-size: 9px; font-weight: 800; font-family: {_FONT};"
         )
         lay.addWidget(badge)
 
@@ -82,13 +102,13 @@ class _PartRow(QFrame):
         col.setSpacing(2)
         d = QLabel(part.device)
         d.setStyleSheet(
-            "color: #000000; font-size: 12px; font-weight: 700;"
-            "font-family: 'Work Sans', Arial; background: transparent;"
+            f"color: {_TEXT}; font-size: 13px; font-weight: 800;"
+            f"font-family: {_FONT}; background: transparent;"
         )
         m = QLabel(f"{part.mountpoint}  |  {part.fstype or 'inconnu'}")
         m.setStyleSheet(
-            "color: #404040; font-size: 10px;"
-            "font-family: 'Work Sans', Arial; background: transparent;"
+            f"color: {_SUB}; font-size: 11px;"
+            f"font-family: {_FONT}; background: transparent;"
         )
         col.addWidget(d)
         col.addWidget(m)
@@ -107,7 +127,7 @@ class _PartRow(QFrame):
 
         sz = QLabel(sz_txt)
         sz.setStyleSheet(
-            "color: #404040; font-size: 11px; font-family: 'Work Sans', Arial; background: transparent;"
+            f"color: {_SUB}; font-size: 12px; font-family: {_FONT}; background: transparent;"
         )
         lay.addWidget(sz)
 
@@ -115,8 +135,8 @@ class _PartRow(QFrame):
         p.setFixedWidth(38)
         p.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         p.setStyleSheet(
-            f"color: {pct_col}; font-size: 11px; font-weight: 700;"
-            "font-family: 'Work Sans', Arial; background: transparent;"
+            f"color: {pct_col}; font-size: 12px; font-weight: 800;"
+            f"font-family: {_FONT}; background: transparent;"
         )
         lay.addWidget(p)
 
@@ -218,69 +238,13 @@ class _PartDetailDialog(QDialog):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  Carte outil
-# ═══════════════════════════════════════════════════════════════════════════════
-
-class _ToolCard(QFrame):
-    def __init__(self, title: str, desc: str, parent=None):
-        super().__init__(parent)
-        self.setFixedHeight(60)
-        self.setStyleSheet(
-            "_ToolCard {"
-            "  background-color: #C0C0C0;"
-            "  border-top: 2px solid #FFFFFF; border-left: 2px solid #FFFFFF;"
-            "  border-bottom: 2px solid #808080; border-right: 2px solid #808080;"
-            "}"
-        )
-        lay = QHBoxLayout(self)
-        lay.setContentsMargins(12, 8, 12, 8)
-        lay.setSpacing(12)
-
-        txt = QVBoxLayout()
-        txt.setSpacing(2)
-        t = QLabel(title)
-        t.setStyleSheet(
-            "color: #000000; font-size: 12px; font-weight: 700;"
-            "font-family: 'Work Sans', Arial; background: transparent;"
-        )
-        d = QLabel(desc)
-        d.setStyleSheet(
-            "color: #404040; font-size: 11px; font-family: 'Work Sans', Arial; background: transparent;"
-        )
-        txt.addWidget(t)
-        txt.addWidget(d)
-        lay.addLayout(txt, stretch=1)
-
-        btn = QPushButton("Bientot disponible")
-        btn.setFixedSize(130, 24)
-        btn.setCursor(Qt.CursorShape.ArrowCursor)
-        btn.setEnabled(False)
-        btn.setStyleSheet(
-            "QPushButton {"
-            "  background-color: #C0C0C0; color: #808080;"
-            "  border-top: 2px solid #FFFFFF; border-left: 2px solid #FFFFFF;"
-            "  border-bottom: 2px solid #808080; border-right: 2px solid #808080;"
-            "}"
-        )
-        lay.addWidget(btn)
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
 #  Ecran partitions
 # ═══════════════════════════════════════════════════════════════════════════════
-
-_TOOLS_LIST = [
-    ("Migration systeme",       "Migrez Windows vers un nouveau disque sans reinstallation."),
-    ("Conversion MBR vers GPT", "Convertissez le style de partition sans perte de donnees."),
-    ("Clone de disque",         "Copiez l'integralite d'un disque sur un autre a l'identique."),
-    ("Sauvegarde de partition", "Creez une image de sauvegarde de vos partitions."),
-]
-
 
 class PartitionsScreen(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setStyleSheet("background-color: #C0C0C0;")
+        self.setStyleSheet(f"background-color: {_CARD};")
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -288,16 +252,16 @@ class PartitionsScreen(QWidget):
 
         # En-tete
         hdr = QWidget()
-        hdr.setFixedHeight(40)
+        hdr.setFixedHeight(62)
         hdr.setStyleSheet(
-            "background-color: #C0C0C0; border-bottom: 2px solid #808080;"
+            f"background-color: {_PANEL}; border-bottom: 1px solid {_LINE};"
         )
         hr = QHBoxLayout(hdr)
-        hr.setContentsMargins(8, 4, 8, 4)
+        hr.setContentsMargins(18, 10, 18, 10)
         title = QLabel("Gestion des partitions")
         title.setStyleSheet(
-            "color: #000000; font-size: 12px; font-weight: 700;"
-            "font-family: 'Work Sans', Arial; background: transparent;"
+            f"color: {_TEXT}; font-size: 15px; font-weight: 800;"
+            f"font-family: {_FONT}; background: transparent;"
         )
         hr.addWidget(title)
         hr.addStretch()
@@ -307,13 +271,13 @@ class PartitionsScreen(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setStyleSheet("QScrollArea { background-color: #C0C0C0; border: none; }")
+        scroll.setStyleSheet(f"QScrollArea {{ background-color: {_CARD}; border: none; }}")
 
         cw = QWidget()
-        cw.setStyleSheet("background-color: #C0C0C0;")
+        cw.setStyleSheet(f"background-color: {_CARD};")
         lay = QVBoxLayout(cw)
-        lay.setContentsMargins(12, 12, 12, 12)
-        lay.setSpacing(8)
+        lay.setContentsMargins(18, 16, 18, 18)
+        lay.setSpacing(10)
         lay.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         lay.addWidget(_section_hdr("Partitions detectees"))
@@ -322,13 +286,8 @@ class PartitionsScreen(QWidget):
                 lay.addWidget(_PartRow(part))
         except Exception:
             e = QLabel("Impossible de lister les partitions.")
-            e.setStyleSheet("color: #800000; font-size: 12px; background: transparent;")
+            e.setStyleSheet(f"color: {_ERR}; font-size: 12px; background: transparent;")
             lay.addWidget(e)
-
-        lay.addSpacing(12)
-        lay.addWidget(_section_hdr("Outils de gestion"))
-        for t, d in _TOOLS_LIST:
-            lay.addWidget(_ToolCard(t, d))
 
         lay.addStretch()
         scroll.setWidget(cw)

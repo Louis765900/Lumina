@@ -2,11 +2,11 @@
 
 [![Build & Test](https://github.com/Louis765900/Lumina/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/Louis765900/Lumina/actions/workflows/build.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
-[![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](#plateformes-supportées)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey.svg)](#plateformes-supportées)
 
-**Récupération de données — interface rétro Windows 98, moteur moderne, multi-plateforme.**
+**Récupération de données — interface rétro Windows 98, moteur moderne, V2 Windows.**
 
-Version actuelle : **v1.1.0**.
+Version actuelle : **v2.0.0-rc1**.
 
 Lumina retrouve vos fichiers perdus sur disques durs, SSD, clés USB et cartes SD. Pas de résultats inventés : chaque fichier affiché provient d'une vraie analyse de votre disque.
 
@@ -14,7 +14,7 @@ Lumina retrouve vos fichiers perdus sur disques durs, SSD, clés USB et cartes S
 
 ## Ce que Lumina fait
 
-- **Quick Scan** — lit les métadonnées NTFS, FAT32, exFAT, ext4 et HFS+ en quelques secondes pour retrouver les fichiers supprimés récemment.
+- **Quick Scan** — lit les métadonnées NTFS/MFT quand elles sont disponibles pour retrouver les fichiers supprimés récemment.
 - **Deep Scan** — analyse secteur par secteur pour récupérer JPEG, PNG, PDF, ZIP, DOCX, MP4, MOV, SQLite et bien d'autres.
 - **Scanner natif Rust** — jusqu'à 860 MB/s sur les images disque locales, 50× plus rapide que le chemin Python.
 - **Réparation JPEG / MP4** — diagnostic et reconstruction des marqueurs SOI/EOI ou des atomes moov/mdat.
@@ -31,27 +31,11 @@ python scripts/build.py     # builds Rust helper + dist\Lumina.exe
 dist\Lumina.exe              # requires Administrator (UAC prompt)
 ```
 
-### macOS
+La V2.0 est publiee Windows-first. Les builds Linux et macOS restent planifies,
+mais ne sont pas annonces comme supportes pour cette release candidate.
 
-```bash
-python scripts/build.py     # builds dist/Lumina.app
-open dist/Lumina.app         # macOS will ask for admin elevation on first scan
-# Optional ad-hoc codesign so Gatekeeper stops complaining:
-codesign --deep -s - dist/Lumina.app
-```
-
-### Linux
-
-```bash
-python scripts/build.py                 # builds dist/lumina/ (one-folder)
-sudo bash scripts/install_linux.sh       # installs to /opt/lumina + desktop entry
-lumina                                   # run via PATH symlink
-```
-
-`scripts/build.py` automatically picks the correct PyInstaller spec
-(`lumina.spec`, `lumina_macos.spec`, `lumina_linux.spec`) based on
-`platform.system()`. Pass `--skip-rust` to reuse a pre-built native
-helper, or `--debug` to skip `cargo --release`.
+Pass `--skip-rust` to reuse a pre-built native helper, or `--debug` to skip
+`cargo --release`.
 
 Au premier lancement, un assistant de configuration s'ouvre : langue, dossier de récupération, moteur de scan, et avertissement de sécurité obligatoire.
 
@@ -60,19 +44,20 @@ Au premier lancement, un assistant de configuration s'ouvre : langue, dossier de
 - Ne jamais récupérer vers le disque source.
 - SSD + TRIM actif = les données effacées peuvent être irrécupérables.
 - Pour les supports endommagés : créez d'abord une image disque, scannez l'image.
-- Extraction limitée à 500 Mo par fichier (signalé dans l'interface et le rapport DFXML).
-- Lecture brute des disques requiert privilèges admin (Windows : UAC ; macOS : élévation osascript ; Linux : `sudo`).
+- L'extraction lit les fichiers recuperes en streaming. Si la source se termine trop tot,
+  Lumina marque clairement le fichier comme partiel.
+- Lecture brute des disques requiert les droits Administrateur sur Windows (invite UAC).
 
 ## Plateformes supportées
 
 | Plateforme | Statut | Installation |
 |------------|--------|--------------|
-| Windows 10/11 (x64) | Production | `python scripts/build.py` → `dist\Lumina.exe` |
-| macOS 10.13+ | Beta | `python scripts/build.py` → `dist/Lumina.app` |
-| Linux (Ubuntu/Debian/Fedora) | Beta | `python scripts/build.py && sudo bash scripts/install_linux.sh` |
+| Windows 10/11 (x64) | Release candidate V2 | `python scripts/build.py` -> `dist\Lumina.exe` |
+| Linux | Planifie V2.1 | Non inclus dans cette RC |
+| macOS | Planifie V2.2 | Non inclus dans cette RC |
 
 ## Ce qui arrive ensuite
 
-- Parseur APFS complet (Filesystem B-Tree walker — v1 actuelle ne fait que la détection NXSB + APSB + chiffrement).
+- Parseur APFS complet (Filesystem B-Tree walker ; la version actuelle ne fait que la detection NXSB + APSB + chiffrement).
 - Scanner Rust étendu aux lecteurs physiques (`\\.\PhysicalDrive`).
-- Pipeline CI/CD avec release automatique des trois OS.
+- Stabilisation de la release Windows, puis travaux Linux V2.1 et macOS V2.2.
