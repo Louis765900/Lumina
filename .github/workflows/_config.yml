@@ -1,0 +1,6 @@
+title: Lumina
+description: Outil de récupération de données, rétro et puissant
+remote_theme: pages-themes/cayman@v0.2.0  # thème simple et pro
+plugins:
+  - jekyll-remote-theme
+show_downloads: true  # affiche un bouton "Download" vers la release GitHub
